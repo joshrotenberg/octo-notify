@@ -1,5 +1,7 @@
 //! Typed endpoint handlers.
 
+#[cfg(feature = "stream")]
+mod bulk;
 pub mod notifications;
 pub mod repo;
 pub mod threads;
