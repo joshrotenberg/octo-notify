@@ -11,18 +11,27 @@ building things on top of the notifications inbox.
 
 > Status: pre-0.1, under active development. The API may change before the first release.
 
-## Why this exists
+## Scope
 
-GitHub provides no push/webhook for the notifications inbox, so anything that reacts to
-notifications has to poll, correctly: conditional requests, `X-Poll-Interval` obedience,
-deduplication, and resilience. That logic gets re-implemented in every notification CLI and
-bot. octo-notify is that logic as a reusable crate.
+octo-notify covers the GitHub Notifications REST API and nothing else. GitHub has no webhook
+for the notifications inbox, so consuming it requires polling with conditional requests,
+`X-Poll-Interval` handling, deduplication, and retry/backoff. This crate provides those as a
+library rather than leaving them to each caller.
 
-It does not compete with general clients like [`octocrab`](https://crates.io/crates/octocrab).
-octocrab covers the whole GitHub API but exposes notifications as thin one-shot endpoint
-wrappers, with no poller, no conditional-request handling, no dedupe, and `reason`/`type` as
-plain strings. octo-notify is the focused, application-shaped layer octocrab deliberately
-doesn't have. You can use both side by side.
+### vs. octocrab
+
+[`octocrab`](https://crates.io/crates/octocrab) is a general GitHub client; its notifications
+support is a set of one-shot endpoint wrappers. octo-notify covers the same endpoints and adds
+what a long-running consumer needs:
+
+- a `Poller` that yields a `Stream` of `New`/`Updated` events
+- conditional requests (`If-Modified-Since` / `304`) and `X-Poll-Interval` handling
+- deduplication via a pluggable `StateStore`
+- `Reason` and `SubjectType` as typed enums with forward-compatible `Unknown` variants
+  (octocrab models these as plain strings)
+- the `DELETE /notifications/threads/{id}` "mark as done" endpoint (octocrab omits it)
+
+The two compose: octocrab for the rest of the API, octo-notify for the inbox.
 
 ## Quick start
 
