@@ -1,0 +1,8 @@
+[workspace]
+changelog_config = "cliff.toml"
+git_release_enable = true
+git_tag_enable = true
+# Private for now: release-plz manages versions, changelog, tags, and GitHub
+# releases, but does NOT publish to crates.io (which is public). To go public,
+# set this to true and add a CARGO_REGISTRY_TOKEN repository secret.
+publish = false

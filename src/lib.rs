@@ -10,9 +10,10 @@
 //! 1. **Typed client** ([`Client`]) covering every Notifications endpoint, with conditional
 //!    requests (`If-Modified-Since` / `304`), rate-limit accounting, pagination, and
 //!    forward-compatible models.
-//! 2. **App engine** ([`Poller`]) turning the inbox into an async [`Stream`](futures::Stream)
-//!    of [`Event`]s, with client-side filters.
-//! 3. **State** ([`StateStore`]) so a long-running poller dedupes across restarts.
+//! 2. **App engine** ([`Poller`](crate::app::Poller)) turning the inbox into an async
+//!    [`Stream`](futures::Stream) of [`Event`](crate::app::Event)s, with client-side filters.
+//! 3. **State** ([`StateStore`](crate::app::StateStore)) so a long-running poller dedupes
+//!    across restarts.
 //!
 //! ## Listing example
 //!

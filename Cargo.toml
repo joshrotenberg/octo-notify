@@ -6,6 +6,9 @@ rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "A focused Rust client and polling engine for the GitHub Notifications API"
 repository = "https://github.com/joshrotenberg/octo-notify"
+homepage = "https://github.com/joshrotenberg/octo-notify"
+documentation = "https://docs.rs/octo-notify"
+readme = "README.md"
 keywords = ["github", "notifications", "api", "async"]
 categories = ["api-bindings", "asynchronous"]
 
@@ -38,3 +41,7 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 futures = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

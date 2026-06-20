@@ -33,7 +33,7 @@ impl<'a> NotificationsHandler<'a> {
 /// Builder for a notifications listing.
 ///
 /// Set [`if_modified_since`](Self::if_modified_since) to make the request conditional; a
-/// `304` then comes back as [`Listing::NotModified`](crate::Listing::NotModified). Use
+/// `304` then comes back as [`Listing::NotModified`]. Use
 /// [`all`](Self::all) or [`stream`](Self::stream) to transparently follow pagination.
 pub struct ListNotifications<'a> {
     client: &'a Client,
