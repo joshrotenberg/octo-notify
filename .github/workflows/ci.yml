@@ -84,7 +84,10 @@ jobs:
         with:
           toolchain: "1.85"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo check --all-targets --all-features
+      # Check the library surface only. --all-targets would pull in dev-dependencies
+      # (e.g. wiremock, which needs a newer toolchain) that do not affect the MSRV
+      # downstream users actually experience.
+      - run: cargo check --all-features
 
   doc:
     name: Documentation
