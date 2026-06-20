@@ -84,6 +84,8 @@ pub mod models;
 pub mod pagination;
 pub mod rate_limit;
 
+#[cfg(feature = "token-refresh")]
+pub use auth::RefreshingToken;
 pub use auth::{Auth, TokenProvider};
 pub use client::{Client, ClientBuilder};
 pub use endpoints::{
@@ -97,6 +99,7 @@ pub use models::{
 };
 pub use pagination::{Listing, NotModified, Page};
 pub use rate_limit::RateLimit;
+pub use secrecy::SecretString;
 
 /// Common imports for downstream apps: `use octo_notify::prelude::*;`.
 pub mod prelude {

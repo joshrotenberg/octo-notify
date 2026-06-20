@@ -34,6 +34,8 @@ native-tls = ["reqwest/native-tls"]
 stream = ["dep:futures", "dep:async-stream", "dep:tokio", "dep:tokio-util"]
 # File-backed StateStore (JsonFileStore) for cross-restart dedupe.
 file-store = ["stream"]
+# RefreshingToken: a caching, auto-refreshing TokenProvider for expiring credentials.
+token-refresh = ["dep:tokio", "tokio/sync"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
@@ -44,6 +46,7 @@ anyhow = "1"
 futures = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 tempfile = "3"
+secrecy = "0.10"
 
 [package.metadata.docs.rs]
 all-features = true
