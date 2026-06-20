@@ -117,6 +117,7 @@ a `CancellationToken`.
 | `rustls` | yes | TLS via rustls |
 | `native-tls` | no | TLS via the platform's native stack |
 | `stream` | yes | The poller engine and `stream()` pagination (Layer 2/3) |
+| `file-store` | no | `JsonFileStore`, a file-backed `StateStore` for cross-restart dedupe |
 
 Disable defaults for a minimal Layer-1 client: `default-features = false, features = ["rustls"]`.
 

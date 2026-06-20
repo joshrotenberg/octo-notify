@@ -10,3 +10,6 @@ mod store;
 
 pub use poller::{Backoff, ErrorPolicy, Event, PollConfig, PollScope, Poller, PollerBuilder};
 pub use store::{MemoryStore, StateStore};
+
+#[cfg(feature = "file-store")]
+pub use store::JsonFileStore;

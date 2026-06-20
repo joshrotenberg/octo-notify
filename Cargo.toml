@@ -32,6 +32,8 @@ rustls = ["reqwest/rustls-tls"]
 native-tls = ["reqwest/native-tls"]
 # Async pagination streams (Layer 1) and the poller engine (Layer 2 + 3).
 stream = ["dep:futures", "dep:async-stream", "dep:tokio", "dep:tokio-util"]
+# File-backed StateStore (JsonFileStore) for cross-restart dedupe.
+file-store = ["stream"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
@@ -41,6 +43,7 @@ clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 futures = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
+tempfile = "3"
 
 [package.metadata.docs.rs]
 all-features = true

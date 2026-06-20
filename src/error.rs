@@ -61,6 +61,10 @@ pub enum Error {
     /// A [`TokenProvider`](crate::TokenProvider) failed to produce a token.
     #[error("token provider failed: {0}")]
     Token(String),
+
+    /// Filesystem I/O failed, e.g. in a file-backed state store.
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Distinguishes GitHub's two rate-limit regimes.
