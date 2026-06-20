@@ -20,17 +20,21 @@ async-trait = "0.1"
 secrecy = "0.10"
 futures = { version = "0.3", optional = true }
 async-stream = { version = "0.3", optional = true }
+tokio = { version = "1", optional = true, features = ["time"] }
+tokio-util = { version = "0.7", optional = true }
 
 [features]
 default = ["rustls", "stream"]
 rustls = ["reqwest/rustls-tls"]
 native-tls = ["reqwest/native-tls"]
-# Async pagination streams (Layer 1) and the poller (Layer 2).
-stream = ["dep:futures", "dep:async-stream"]
+# Async pagination streams (Layer 1) and the poller engine (Layer 2 + 3).
+stream = ["dep:futures", "dep:async-stream", "dep:tokio", "dep:tokio-util"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
+tokio-util = "0.7"
 wiremock = "0.6"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 futures = "0.3"
+chrono = { version = "0.4", default-features = false, features = ["std"] }

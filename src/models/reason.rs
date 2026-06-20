@@ -9,7 +9,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Forward-compatible: unrecognized values land in [`Reason::Unknown`] rather than failing
 /// to deserialize. The `reason` on a thread can change over time if a later event has a
 /// different reason.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Reason {
     /// You were assigned to the issue.

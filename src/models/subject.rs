@@ -41,7 +41,7 @@ impl Subject {
 /// The type of a notification subject.
 ///
 /// Forward-compatible: unrecognized values land in [`SubjectType::Unknown`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SubjectType {
     /// An issue.

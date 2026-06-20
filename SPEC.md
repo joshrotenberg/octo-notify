@@ -561,7 +561,7 @@ let results = client.mark_done_each(ci, 8).await;
 |---|---|
 | M1 — transport ✅ | `Client`/`Auth`/`Error` + `TokenProvider`, `GET /notifications`, conditional requests (304), header + rate-limit parsing, forward-compat models, wiremock tests, `inbox` example. Done; verified live. |
 | M2 — full coverage ✅ | All 13 endpoints (inbox + repo list/mark, thread get/read/done, 3 subscription ops), shared request layer, `all()` + `stream()` pagination, `ThreadSubscription` model. Done. |
-| M3 — engine | `Poller` + `Stream`, filters, `MemoryStore`, conditional-request loop, robustness contract (§6.4): error policy, backoff, ascending emit, cancellation |
+| M3 — engine ✅ | `Poller` + `Stream<Event>`, builder, filters (reason/type/repo/predicate), `StateStore` + `MemoryStore`, conditional-request loop, robustness contract (§6.4): transient/fatal error policy, backoff, at-least-once ascending emit, cancellation. Done; verified live via the `watch` example. |
 | M4 — persistence + bulk | `JsonFileStore`, bulk mark-read/done, `RetryPolicy`, `TokenProvider` seam, opt-in `prune_after` |
 | M5 — polish | docs, `examples/`, CI matrix, MSRV pin, `0.1.0` to crates.io |
 | later | `SqliteStore`, optional sync facade, GHES test coverage, TUI demo |

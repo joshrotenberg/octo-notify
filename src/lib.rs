@@ -5,13 +5,16 @@
 //! This crate does one thing: work with a GitHub user's notifications inbox, completely and
 //! correctly. It is not a general GitHub client.
 //!
-//! ## Status
+//! ## Layers
 //!
-//! Milestone 1: the typed client foundation plus `GET /notifications` with conditional
-//! requests (`If-Modified-Since` / `304`), rate-limit accounting, and forward-compatible
-//! models. The poller, full endpoint coverage, and state stores follow in later milestones.
+//! 1. **Typed client** ([`Client`]) covering every Notifications endpoint, with conditional
+//!    requests (`If-Modified-Since` / `304`), rate-limit accounting, pagination, and
+//!    forward-compatible models.
+//! 2. **App engine** ([`Poller`]) turning the inbox into an async [`Stream`](futures::Stream)
+//!    of [`Event`]s, with client-side filters.
+//! 3. **State** ([`StateStore`]) so a long-running poller dedupes across restarts.
 //!
-//! ## Example
+//! ## Listing example
 //!
 //! ```no_run
 //! use octo_notify::{Auth, Client, Listing, Reason};
@@ -28,17 +31,50 @@
 //! if let Listing::Modified(page) = listing {
 //!     for n in &page.items {
 //!         if matches!(n.reason, Reason::Mention) {
-//!             println!("{} — {}", n.repository.full_name, n.subject.title);
+//!             println!("{} - {}", n.repository.full_name, n.subject.title);
 //!         }
 //!     }
 //! }
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## Watching example
+//!
+//! ```no_run
+//! use futures::StreamExt;
+//! use octo_notify::{Auth, Client};
+//! use octo_notify::app::Event;
+//!
+//! # async fn run() -> octo_notify::Result<()> {
+//! let client = Client::new(Auth::from_env()?)?;
+//! let mut events = Box::pin(client.poller().build().stream());
+//! while let Some(event) = events.next().await {
+//!     match event? {
+//!         Event::New(n) => println!("new: {}", n.subject.title),
+//!         Event::Updated(n) => println!("updated: {}", n.subject.title),
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Robustness contract (the poller)
+//!
+//! - **Transient vs fatal errors:** network blips, 5xx, and rate limits are retried with
+//!   backoff; only fatal errors (e.g. `401`) end the stream.
+//! - **At-least-once delivery:** events emit in ascending `updated_at`; per-thread seen state
+//!   commits after an event is delivered and the `Last-Modified` watermark advances only after
+//!   the full tick, so a crash re-emits rather than drops. Dedupe downstream on `(id, updated_at)`.
+//! - **Pagination vs conditional requests:** the `If-Modified-Since` check applies to page 1;
+//!   on a change, all pages are fetched before classification so the inbox is never half-read.
+//! - **Shutdown:** drop the stream, or pass a `CancellationToken` for cooperative shutdown.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "stream")]
+pub mod app;
 pub mod auth;
 mod client;
 pub mod endpoints;
