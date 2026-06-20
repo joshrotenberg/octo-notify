@@ -1,4 +1,4 @@
-# octo-notify — Design Spec
+# octo-notify - Design Spec
 
 > A Rust library focused 100% on the GitHub Notifications API: complete, typed coverage of
 > every endpoint, plus an application engine (poller + async stream + state) for building
@@ -11,13 +11,13 @@ Status: **draft / pre-0.1**. This document is the design contract; code follows 
 ## 1. Mission and scope
 
 octo-notify does one thing well: it is the definitive Rust crate for working with a GitHub
-user's **notifications inbox**. It is *not* a general GitHub client — it deliberately covers
+user's **notifications inbox**. It is *not* a general GitHub client - it deliberately covers
 only the notifications surface, and covers it completely.
 
 No existing crate fills this niche: `notify` is filesystem-watching, `notify-rust` is desktop
 popups, and general clients like `octocrab` treat notifications as a thin afterthought with no
-poller, dedupe, or conditional-request handling. That gap — a focused, correct notifications
-engine — is the reason this crate exists.
+poller, dedupe, or conditional-request handling. That gap - a focused, correct notifications
+engine - is the reason this crate exists.
 
 **In scope**
 
@@ -34,7 +34,7 @@ engine — is the reason this crate exists.
 - Issues/PRs/repos/anything that isn't the notifications surface. The one concession: the
   `subject.url` of a notification points at an issue/PR/commit/etc., and we expose helpers to
   *fetch the raw JSON* of that URL, but we do not model those resources.
-- GraphQL — notifications are REST-only at GitHub.
+- GraphQL - notifications are REST-only at GitHub.
 - A UI/TUI. (An `examples/` TUI may exist as a demo, never as a crate dependency.)
 
 ---
@@ -45,10 +45,9 @@ engine — is the reason this crate exists.
    time. Every such enum has an `Unknown(String)` variant and never fails deserialization on
    an unseen value. A notifications library that breaks when GitHub ships a new reason is
    broken by design.
-2. **The polling mechanics are the product.** Conditional requests, `X-Poll-Interval`, and
-   rate-limit accounting aren't an afterthought layered on a dumb client — they are first-class
-   and correct by default. A 304 must cost zero rate-limit budget and the library must make
-   that automatic.
+2. **Polling mechanics are first-class.** Conditional requests, `X-Poll-Interval`, and
+   rate-limit accounting are handled by default, not left to the caller. A 304 costs zero
+   rate-limit budget, and the library handles that automatically.
 3. **Layered, each layer usable alone.** You can use Layer 1 (the typed client) without ever
    touching the poller. You can use the poller without the file store. No layer forces the one
    above it.
@@ -62,18 +61,18 @@ engine — is the reason this crate exists.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Layer 3 — State (optional)                                    │
+│ Layer 3 - State (optional)                                    │
 │   StateStore trait · MemoryStore · JsonFileStore · (Sqlite)   │
 │   Persists Last-Modified + seen-thread set for cross-restart  │
 │   dedupe.                                                      │
 ├─────────────────────────────────────────────────────────────┤
-│ Layer 2 — App engine                                          │
+│ Layer 2 - App engine                                          │
 │   Poller → Stream<Item = Result<Event>>                       │
 │   PollConfig (interval floor, scope, all/participating)       │
 │   Filters (reason / subject-type / repo / custom predicate)   │
 │   Bulk actions (mark many read/done with bounded concurrency) │
 ├─────────────────────────────────────────────────────────────┤
-│ Layer 1 — Typed client (full API coverage)                    │
+│ Layer 1 - Typed client (full API coverage)                    │
 │   Client + ClientBuilder · Auth · Error · RateLimit           │
 │   Endpoint handlers · request builders · Page/pagination      │
 │   Conditional requests, header parsing, models                │
@@ -118,7 +117,7 @@ Layer 1 alone = no `stream` feature needed.
 
 ---
 
-## 5. Layer 1 — Typed client
+## 5. Layer 1 - Typed client
 
 ### 5.1 Client and auth
 
@@ -150,7 +149,7 @@ impl Auth {
 }
 ```
 
-**Request defaults.** The base URL defaults to `https://api.github.com` (the REST API host —
+**Request defaults.** The base URL defaults to `https://api.github.com` (the REST API host -
 *not* `https://github.com`, a common mistake). Every request sends `User-Agent` (required by
 GitHub), `Accept: application/vnd.github+json`, and pins `X-GitHub-Api-Version: 2022-11-28` so a
 future default API version can't silently change response shapes. `base_url` overrides the host
@@ -162,7 +161,7 @@ the read-only "Notifications" account permission. There is no pure app-to-server
 inbox, so we model auth as a single bearer token and document the scope requirements rather
 than enumerating credential types.
 
-### 5.2 Endpoint coverage — every endpoint mapped
+### 5.2 Endpoint coverage - every endpoint mapped
 
 Handlers are entry points; request builders carry optional params and `.send()`.
 
@@ -262,7 +261,7 @@ impl Subject {
 }
 impl Client {
     /// Fetch the raw JSON the subject points at (issue/PR/commit/release/...).
-    /// We don't model the result — return serde_json::Value so callers map it themselves.
+    /// We don't model the result - return serde_json::Value so callers map it themselves.
     pub async fn fetch_subject(&self, n: &Notification) -> Result<serde_json::Value>;
 }
 ```
@@ -320,11 +319,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 ---
 
-## 6. Layer 2 — App engine
+## 6. Layer 2 - App engine
 
 ### 6.1 Poller and event stream
 
-GitHub provides **no push/webhook for the notifications inbox** — events feed it server-side, but
+GitHub provides **no push/webhook for the notifications inbox** - events feed it server-side, but
 there is no subscription that pushes the inbox to you. Polling is the only mechanism, which is
 precisely why a correct poller (conditional requests, interval obedience, dedupe, resilience) is
 the core of this crate rather than a convenience wrapper.
@@ -403,7 +402,7 @@ Per-thread results are returned individually so one failure doesn't sink the bat
 A library that fronts a *days-long* poll loop lives or dies on its failure behavior. This is the
 contract.
 
-**Error policy — transient vs fatal.** A naive `Stream` that ends on the first network blip is
+**Error policy - transient vs fatal.** A naive `Stream` that ends on the first network blip is
 useless for a background watcher. The poller classifies each poll error:
 
 - **Transient** (timeouts, 5xx, secondary rate limit, primary-limit exhaustion): do *not* end the
@@ -411,7 +410,7 @@ useless for a background watcher. The poller classifies each poll error:
   opts into seeing them (`ErrorPolicy::emit_transient`); by default they're retried silently and
   logged via `tracing`.
 - **Fatal** (`401 Unauthorized`, `InvalidBaseUrl`, a deserialize error that recurs): yield the
-  `Err` once and end the stream — retrying can't help.
+  `Err` once and end the stream - retrying can't help.
 
 ```rust
 pub struct ErrorPolicy {
@@ -425,17 +424,17 @@ pub struct ErrorPolicy {
 the normal poll cadence. On recovery, the loop returns to the `X-Poll-Interval`/`min_interval`
 rhythm.
 
-**Delivery semantics — at-least-once.** Within a tick, the poller emits events in **ascending
-`updated_at`** order (oldest first — natural for a feed), then commits per-thread `seen` records,
+**Delivery semantics - at-least-once.** Within a tick, the poller emits events in **ascending
+`updated_at`** order (oldest first - natural for a feed), then commits per-thread `seen` records,
 and only after the whole tick is durably recorded commits the new `last_modified`. A crash
-mid-tick re-fetches (the watermark wasn't advanced) and re-emits — so a consumer may see a given
+mid-tick re-fetches (the watermark wasn't advanced) and re-emits - so a consumer may see a given
 notification more than once but never miss one. For notifications, double-notifying beats
 dropping. Consumers that need exactly-once dedupe downstream on `(id, updated_at)`.
 
 **Pagination vs conditional requests.** The two compose carefully: the conditional `If-Modified-
 Since` and the `X-Poll-Interval` / `Last-Modified` capture apply to the **first page** of a tick.
 On a `200`, the poller records page 1's `Last-Modified`, then follows `Link rel="next"`
-*unconditionally* to assemble the full current set before classifying — so a multi-page inbox is
+*unconditionally* to assemble the full current set before classifying - so a multi-page inbox is
 never half-read, and the next tick's 304 check still works off page 1.
 
 **Shutdown.** Dropping the stream stops the loop at the next `await` point. For cooperative
@@ -450,7 +449,7 @@ the API directly should not assume read-state is immediately reflected.
 
 ---
 
-## 7. Layer 3 — State store
+## 7. Layer 3 - State store
 
 ```rust
 #[async_trait]
@@ -503,7 +502,7 @@ src/
 let client = Client::new(Auth::from_env()?)?;
 let page = client.notifications().list().participating(true).send().await?;
 for n in page.items.iter().filter(|n| matches!(n.reason, Reason::Mention)) {
-    println!("{} — {}", n.repository.full_name, n.subject.title);
+    println!("{} - {}", n.repository.full_name, n.subject.title);
 }
 ```
 
@@ -559,12 +558,12 @@ let results = client.mark_done_each(ci, 8).await;
 
 | Milestone | Contents |
 |---|---|
-| M1 — transport ✅ | `Client`/`Auth`/`Error` + `TokenProvider`, `GET /notifications`, conditional requests (304), header + rate-limit parsing, forward-compat models, wiremock tests, `inbox` example. Done; verified live. |
-| M2 — full coverage ✅ | All 13 endpoints (inbox + repo list/mark, thread get/read/done, 3 subscription ops), shared request layer, `all()` + `stream()` pagination, `ThreadSubscription` model. Done. |
-| M3 — engine ✅ | `Poller` + `Stream<Event>`, builder, filters (reason/type/repo/predicate), `StateStore` + `MemoryStore`, conditional-request loop, robustness contract (§6.4): transient/fatal error policy, backoff, at-least-once ascending emit, cancellation. Done; verified live via the `watch` example. |
-| M4 — persistence + bulk | `JsonFileStore`, bulk mark-read/done, `RetryPolicy`, `TokenProvider` seam, opt-in `prune_after` |
-| M5 — polish | docs, `examples/`, CI matrix, MSRV pin, `0.1.0` to crates.io |
-| later | `SqliteStore`, optional sync facade, GHES test coverage, TUI demo |
+| M1 - transport ✅ | `Client`/`Auth`/`Error` + `TokenProvider`, `GET /notifications`, conditional requests (304), header + rate-limit parsing, forward-compat models, wiremock tests, `inbox` example. Done; verified live. |
+| M2 - full coverage ✅ | All 13 endpoints (inbox + repo list/mark, thread get/read/done, 3 subscription ops), shared request layer, `all()` + `stream()` pagination, `ThreadSubscription` model. Done. |
+| M3 - engine ✅ | `Poller` + `Stream<Event>`, builder, filters (reason/type/repo/predicate), `StateStore` + `MemoryStore`, conditional-request loop, robustness contract (§6.4): transient/fatal error policy, backoff, at-least-once ascending emit, cancellation. Done; verified live via the `watch` example. |
+| M4 - persistence + bulk ✅ | `JsonFileStore` (#5, `file-store` feature), bulk `mark_read_each`/`mark_done_each` (#6), `RefreshingToken` (#7, `token-refresh` feature), `RetryPolicy` (#8, `retry` feature). Done. |
+| M5 - polish (in progress) | docs factual scrub (#10), CI matrix and release-plz (done), `0.1.0` to crates.io (pending) |
+| later | `SqliteStore`, opt-in `prune_after`, optional sync facade, GHES test coverage, TUI demo |
 
 ---
 
@@ -586,16 +585,13 @@ Resolved for 0.1:
 
 ## 13. Still open
 
-These don't block M1 but need a call before the milestone that touches them:
-
-1. **Token refresh (M4+).** `Auth::Token` is a static bearer. Classic PATs are long-lived, but
-   GitHub App *user-to-server* tokens expire (~8h) — a poller running for days will see 401s. To
-   support that, `Auth` should grow a `TokenProvider` trait (an async `fn token()` the client
-   calls per request / on 401) without breaking the static-token path. Decide whether to design
-   the seam in now or defer. Leaning: add the trait in M4, keep `Auth::token()` as the trivial impl.
-2. **`prune` policy.** `StateStore::prune` exists but nothing calls it. Should the poller auto-prune
-   seen-records older than N days, or leave GC entirely to the caller? Leaning: opt-in
+1. **`prune` policy.** `StateStore::prune` exists but nothing calls it. Either the poller
+   auto-prunes seen-records older than N days, or GC is left to the caller. Proposed: opt-in
    `PollConfig::prune_after: Option<Duration>`, default `None`.
-3. **`Updated` for read-state changes.** If a thread is marked read elsewhere (web UI), should the
-   poller emit anything? Currently no (we only track `updated_at`). A `Read`/`Done` event would
-   need extra state and is probably out of scope — confirm.
+2. **`Updated` for read-state changes.** If a thread is marked read elsewhere (web UI), the poller
+   emits nothing today (it tracks `updated_at` only). A `Read`/`Done` event would need extra state
+   and is currently out of scope.
+3. **Reactive token refresh on 401.** `RefreshingToken` (#7) refreshes proactively before expiry.
+   Refreshing in response to a `401` would require a retry in the request layer and can land later.
+
+Resolved: the `TokenProvider` seam and a proactive `RefreshingToken` shipped in #7.

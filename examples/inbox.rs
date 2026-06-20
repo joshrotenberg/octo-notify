@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             if page.has_next() {
-                println!("\n(more pages available — pagination lands in M2)");
+                println!("\n(more pages available - pagination lands in M2)");
             }
         }
         Listing::NotModified(_) => println!("not modified"),

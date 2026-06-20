@@ -118,6 +118,8 @@ a `CancellationToken`.
 | `native-tls` | no | TLS via the platform's native stack |
 | `stream` | yes | The poller engine and `stream()` pagination (Layer 2/3) |
 | `file-store` | no | `JsonFileStore`, a file-backed `StateStore` for cross-restart dedupe |
+| `token-refresh` | no | `RefreshingToken`, a caching `TokenProvider` for expiring credentials |
+| `retry` | no | `RetryPolicy`, auto-retry for rate-limited calls |
 
 Disable defaults for a minimal Layer-1 client: `default-features = false, features = ["rustls"]`.
 
