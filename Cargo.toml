@@ -36,6 +36,8 @@ stream = ["dep:futures", "dep:async-stream", "dep:tokio", "dep:tokio-util"]
 file-store = ["stream"]
 # RefreshingToken: a caching, auto-refreshing TokenProvider for expiring credentials.
 token-refresh = ["dep:tokio", "tokio/sync"]
+# RetryPolicy: auto-retry rate-limited one-shot calls.
+retry = ["dep:tokio", "tokio/time"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
