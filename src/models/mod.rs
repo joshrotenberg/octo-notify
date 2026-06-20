@@ -8,8 +8,10 @@ mod notification;
 mod reason;
 mod repository;
 mod subject;
+mod subscription;
 
 pub use notification::{Notification, ThreadId};
 pub use reason::Reason;
 pub use repository::{MinimalRepository, SimpleUser};
 pub use subject::{Subject, SubjectType};
+pub use subscription::ThreadSubscription;

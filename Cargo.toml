@@ -18,14 +18,19 @@ url = { version = "2", features = ["serde"] }
 thiserror = "2"
 async-trait = "0.1"
 secrecy = "0.10"
+futures = { version = "0.3", optional = true }
+async-stream = { version = "0.3", optional = true }
 
 [features]
-default = ["rustls"]
+default = ["rustls", "stream"]
 rustls = ["reqwest/rustls-tls"]
 native-tls = ["reqwest/native-tls"]
+# Async pagination streams (Layer 1) and the poller (Layer 2).
+stream = ["dep:futures", "dep:async-stream"]
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
+futures = "0.3"

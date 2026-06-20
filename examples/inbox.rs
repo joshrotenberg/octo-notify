@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let listing = client
         .notifications()
         .list()
-        .all(args.all)
+        .include_read(args.all)
         .participating(args.participating)
         .per_page(args.per_page)
         .send()

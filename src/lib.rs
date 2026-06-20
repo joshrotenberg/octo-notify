@@ -49,9 +49,14 @@ pub mod rate_limit;
 
 pub use auth::{Auth, TokenProvider};
 pub use client::{Client, ClientBuilder};
+pub use endpoints::{
+    ListNotifications, MarkAllRead, NotificationsHandler, RepoHandler, RepoNotificationsHandler,
+    ThreadHandler,
+};
 pub use error::{Error, RateLimitKind, Result};
 pub use models::{
     MinimalRepository, Notification, Reason, SimpleUser, Subject, SubjectType, ThreadId,
+    ThreadSubscription,
 };
 pub use pagination::{Listing, NotModified, Page};
 pub use rate_limit::RateLimit;

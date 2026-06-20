@@ -2,15 +2,19 @@
 
 use std::time::Duration;
 
-use reqwest::StatusCode;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderName, HeaderValue, USER_AGENT};
+use reqwest::{Method, StatusCode};
+use secrecy::ExposeSecret;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use url::Url;
 
 use crate::auth::Auth;
 use crate::endpoints::notifications::NotificationsHandler;
+use crate::endpoints::repo::RepoHandler;
+use crate::endpoints::threads::ThreadHandler;
 use crate::error::{Error, RateLimitKind, Result};
+use crate::models::ThreadId;
 use crate::pagination::{Listing, NotModified, Page, parse_link_next};
 use crate::rate_limit::RateLimit;
 
@@ -44,12 +48,21 @@ impl Client {
         NotificationsHandler { client: self }
     }
 
-    pub(crate) fn http(&self) -> &reqwest::Client {
-        &self.http
+    /// Operations scoped to a single repository's notifications.
+    pub fn repo(&self, owner: impl Into<String>, repo: impl Into<String>) -> RepoHandler<'_> {
+        RepoHandler {
+            client: self,
+            owner: owner.into(),
+            repo: repo.into(),
+        }
     }
 
-    pub(crate) fn auth(&self) -> &Auth {
-        &self.auth
+    /// Operations on a single notification thread.
+    pub fn thread(&self, id: impl Into<ThreadId>) -> ThreadHandler<'_> {
+        ThreadHandler {
+            client: self,
+            id: id.into(),
+        }
     }
 
     /// Join a relative API path onto the configured base URL.
@@ -57,8 +70,39 @@ impl Client {
         self.base_url.join(path).map_err(|_| Error::InvalidBaseUrl)
     }
 
-    /// Interpret a listing response into a [`Listing`], mapping status codes to
-    /// the right success/error shapes (notably treating `304` as success).
+    /// Start a request for `method` + `url`. Authentication is attached by [`execute`].
+    pub(crate) fn request(&self, method: Method, url: Url) -> reqwest::RequestBuilder {
+        self.http.request(method, url)
+    }
+
+    /// Attach authentication and send a request, returning the raw response.
+    pub(crate) async fn execute(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
+        let token = self.auth.bearer().await?;
+        let response = request.bearer_auth(token.expose_secret()).send().await?;
+        Ok(response)
+    }
+
+    /// GET a listing URL, optionally conditional, and interpret it.
+    pub(crate) async fn execute_list<T>(
+        &self,
+        url: Url,
+        if_modified_since: Option<&str>,
+    ) -> Result<Listing<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let mut request = self.request(Method::GET, url);
+        if let Some(value) = if_modified_since {
+            request = request.header(reqwest::header::IF_MODIFIED_SINCE, value);
+        }
+        let response = self.execute(request).await?;
+        self.interpret_list::<T>(response).await
+    }
+
+    /// Interpret a listing response, treating `304` as success rather than an error.
     pub(crate) async fn interpret_list<T>(&self, resp: reqwest::Response) -> Result<Listing<T>>
     where
         T: DeserializeOwned,
@@ -87,26 +131,59 @@ impl Client {
                 last_modified,
                 rate_limit,
             })),
-            StatusCode::UNAUTHORIZED => Err(Error::Unauthorized),
+            _ => Err(self.error_for(status, resp).await),
+        }
+    }
+
+    /// Interpret a response whose `200` body is a single `T`.
+    pub(crate) async fn interpret_one<T>(&self, resp: reqwest::Response) -> Result<T>
+    where
+        T: DeserializeOwned,
+    {
+        let status = resp.status();
+        if status == StatusCode::OK {
+            let body = resp.text().await?;
+            serde_json::from_str::<T>(&body).map_err(|source| Error::Deserialize { source, body })
+        } else {
+            Err(self.error_for(status, resp).await)
+        }
+    }
+
+    /// Interpret a response that carries no body on success (mark read/done, etc.).
+    /// Any 2xx (including `202 Accepted` for async processing) and `304` map to `Ok(())`.
+    pub(crate) async fn interpret_unit(&self, resp: reqwest::Response) -> Result<()> {
+        let status = resp.status();
+        if status.is_success() || status == StatusCode::NOT_MODIFIED {
+            Ok(())
+        } else {
+            Err(self.error_for(status, resp).await)
+        }
+    }
+
+    /// Map a non-success status to the right [`Error`], distinguishing rate limits.
+    async fn error_for(&self, status: StatusCode, resp: reqwest::Response) -> Error {
+        match status {
+            StatusCode::UNAUTHORIZED => Error::Unauthorized,
             StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS => {
                 let retry_after = parse_retry_after(resp.headers());
+                let rate_limit = RateLimit::from_headers(resp.headers());
                 if retry_after.is_some() {
-                    Err(Error::RateLimited {
+                    Error::RateLimited {
                         kind: RateLimitKind::Secondary,
                         retry_after,
                         reset_at: rate_limit.reset_at,
-                    })
+                    }
                 } else if rate_limit.remaining == Some(0) {
-                    Err(Error::RateLimited {
+                    Error::RateLimited {
                         kind: RateLimitKind::Primary,
                         retry_after: None,
                         reset_at: rate_limit.reset_at,
-                    })
+                    }
                 } else {
-                    Err(api_error(status, resp).await)
+                    api_error(status, resp).await
                 }
             }
-            _ => Err(api_error(status, resp).await),
+            _ => api_error(status, resp).await,
         }
     }
 }

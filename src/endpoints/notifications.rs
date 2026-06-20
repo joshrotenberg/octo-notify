@@ -1,33 +1,44 @@
-//! The authenticated user's notification inbox: `GET /notifications`.
+//! Inbox-level notification endpoints, reused for repository scope.
+//!
+//! [`ListNotifications`] and [`MarkAllRead`] are path-parameterized so the same builders
+//! serve both `GET/PUT /notifications` and `GET/PUT /repos/{owner}/{repo}/notifications`.
 
 use chrono::{DateTime, Utc};
-use secrecy::ExposeSecret;
+use reqwest::Method;
+use serde::Serialize;
+use url::Url;
 
 use crate::client::Client;
 use crate::error::Result;
 use crate::models::Notification;
 use crate::pagination::Listing;
 
-/// Entry point for inbox-level notification operations.
+/// Entry point for the authenticated user's whole notification inbox.
 pub struct NotificationsHandler<'a> {
     pub(crate) client: &'a Client,
 }
 
 impl<'a> NotificationsHandler<'a> {
-    /// Build a request to list notifications (`GET /notifications`).
+    /// List notifications (`GET /notifications`).
     pub fn list(&self) -> ListNotifications<'a> {
-        ListNotifications::new(self.client)
+        ListNotifications::new(self.client, "notifications".to_owned())
+    }
+
+    /// Mark all notifications as read (`PUT /notifications`).
+    pub fn mark_all_read(&self) -> MarkAllRead<'a> {
+        MarkAllRead::new(self.client, "notifications".to_owned())
     }
 }
 
-/// Builder for `GET /notifications`.
+/// Builder for a notifications listing.
 ///
-/// Set the `If-Modified-Since` header via [`if_modified_since`](Self::if_modified_since)
-/// to make the request conditional; a `304` then comes back as
-/// [`Listing::NotModified`](crate::Listing::NotModified) rather than re-downloading data.
+/// Set [`if_modified_since`](Self::if_modified_since) to make the request conditional; a
+/// `304` then comes back as [`Listing::NotModified`](crate::Listing::NotModified). Use
+/// [`all`](Self::all) or [`stream`](Self::stream) to transparently follow pagination.
 pub struct ListNotifications<'a> {
     client: &'a Client,
-    all: Option<bool>,
+    path: String,
+    include_read: Option<bool>,
     participating: Option<bool>,
     since: Option<DateTime<Utc>>,
     before: Option<DateTime<Utc>>,
@@ -37,10 +48,11 @@ pub struct ListNotifications<'a> {
 }
 
 impl<'a> ListNotifications<'a> {
-    pub(crate) fn new(client: &'a Client) -> Self {
+    pub(crate) fn new(client: &'a Client, path: String) -> Self {
         ListNotifications {
             client,
-            all: None,
+            path,
+            include_read: None,
             participating: None,
             since: None,
             before: None,
@@ -50,9 +62,9 @@ impl<'a> ListNotifications<'a> {
         }
     }
 
-    /// Include notifications already marked as read (`all`).
-    pub fn all(mut self, all: bool) -> Self {
-        self.all = Some(all);
+    /// Include notifications already marked as read (the `all` query parameter).
+    pub fn include_read(mut self, include_read: bool) -> Self {
+        self.include_read = Some(include_read);
         self
     }
 
@@ -74,7 +86,7 @@ impl<'a> ListNotifications<'a> {
         self
     }
 
-    /// Results per page (`per_page`); the inbox endpoint caps this at 50.
+    /// Results per page (`per_page`); inbox scope caps at 50, repo scope at 100.
     pub fn per_page(mut self, per_page: u8) -> Self {
         self.per_page = Some(per_page);
         self
@@ -93,13 +105,12 @@ impl<'a> ListNotifications<'a> {
         self
     }
 
-    /// Send the request.
-    pub async fn send(self) -> Result<Listing<Notification>> {
-        let mut url = self.client.endpoint("notifications")?;
+    fn first_url(&self) -> Result<Url> {
+        let mut url = self.client.endpoint(&self.path)?;
         {
             let mut query = url.query_pairs_mut();
-            if let Some(all) = self.all {
-                query.append_pair("all", bool_str(all));
+            if let Some(include_read) = self.include_read {
+                query.append_pair("all", bool_str(include_read));
             }
             if let Some(participating) = self.participating {
                 query.append_pair("participating", bool_str(participating));
@@ -117,20 +128,107 @@ impl<'a> ListNotifications<'a> {
                 query.append_pair("page", &page.to_string());
             }
         }
-
-        let token = self.client.auth().bearer().await?;
-        let mut request = self
-            .client
-            .http()
-            .get(url)
-            .bearer_auth(token.expose_secret());
-        if let Some(value) = &self.if_modified_since {
-            request = request.header(reqwest::header::IF_MODIFIED_SINCE, value);
-        }
-
-        let response = request.send().await?;
-        self.client.interpret_list::<Notification>(response).await
+        Ok(url)
     }
+
+    /// Send the request for a single page.
+    pub async fn send(self) -> Result<Listing<Notification>> {
+        let url = self.first_url()?;
+        self.client
+            .execute_list::<Notification>(url, self.if_modified_since.as_deref())
+            .await
+    }
+
+    /// Fetch every page, following `Link: rel="next"`, and collect the results.
+    ///
+    /// Pagination is unconditional: any `if_modified_since` set on the builder is ignored
+    /// here, since the intent is to retrieve the full current set.
+    pub async fn all(self) -> Result<Vec<Notification>> {
+        let mut out = Vec::new();
+        let mut next = Some(self.first_url()?);
+        while let Some(url) = next {
+            match self.client.execute_list::<Notification>(url, None).await? {
+                Listing::Modified(page) => {
+                    out.extend(page.items);
+                    next = page.next;
+                }
+                Listing::NotModified(_) => break,
+            }
+        }
+        Ok(out)
+    }
+
+    /// Stream every notification across all pages, following `Link: rel="next"`.
+    #[cfg(feature = "stream")]
+    pub fn stream(self) -> impl futures::Stream<Item = Result<Notification>> + 'a {
+        let client = self.client;
+        let first = self.first_url();
+        async_stream::try_stream! {
+            let mut next = Some(first?);
+            while let Some(url) = next {
+                let page = match client.execute_list::<Notification>(url, None).await? {
+                    Listing::Modified(page) => page,
+                    Listing::NotModified(_) => break,
+                };
+                for item in page.items {
+                    yield item;
+                }
+                next = page.next;
+            }
+        }
+    }
+}
+
+/// Builder for marking notifications as read (`PUT /notifications` or the repo variant).
+pub struct MarkAllRead<'a> {
+    client: &'a Client,
+    path: String,
+    last_read_at: Option<DateTime<Utc>>,
+    read: Option<bool>,
+}
+
+impl<'a> MarkAllRead<'a> {
+    pub(crate) fn new(client: &'a Client, path: String) -> Self {
+        MarkAllRead {
+            client,
+            path,
+            last_read_at: None,
+            read: None,
+        }
+    }
+
+    /// Only mark notifications updated up to this time (`last_read_at`).
+    pub fn last_read_at(mut self, last_read_at: DateTime<Utc>) -> Self {
+        self.last_read_at = Some(last_read_at);
+        self
+    }
+
+    /// Set the `read` flag (inbox scope only).
+    pub fn read(mut self, read: bool) -> Self {
+        self.read = Some(read);
+        self
+    }
+
+    /// Send the request. Large inboxes may be processed asynchronously (`202 Accepted`),
+    /// in which case the change is not immediately reflected by a subsequent list.
+    pub async fn send(self) -> Result<()> {
+        let url = self.client.endpoint(&self.path)?;
+        let body = MarkAllReadBody {
+            last_read_at: self.last_read_at.map(|t| t.to_rfc3339()),
+            read: self.read,
+        };
+        let request = self.client.request(Method::PUT, url).json(&body);
+        let response = self.client.execute(request).await?;
+        self.client.interpret_unit(response).await
+    }
+}
+
+#[derive(Serialize)]
+struct MarkAllReadBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    last_read_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    read: Option<bool>,
 }
 
 fn bool_str(b: bool) -> &'static str {

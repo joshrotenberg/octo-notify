@@ -1,0 +1,32 @@
+[
+  {
+    "id": "555000555",
+    "unread": true,
+    "reason": "subscribed",
+    "updated_at": "2024-05-04T09:00:00Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "Second page item",
+      "url": "https://api.github.com/repos/octocat/hello-world/issues/99",
+      "latest_comment_url": null,
+      "type": "Issue"
+    },
+    "repository": {
+      "id": 1296269,
+      "name": "hello-world",
+      "full_name": "octocat/hello-world",
+      "private": false,
+      "fork": false,
+      "html_url": "https://github.com/octocat/hello-world",
+      "owner": {
+        "login": "octocat",
+        "id": 583231,
+        "html_url": "https://github.com/octocat",
+        "type": "User",
+        "site_admin": false
+      }
+    },
+    "url": "https://api.github.com/notifications/threads/555000555",
+    "subscription_url": "https://api.github.com/notifications/threads/555000555/subscription"
+  }
+]
