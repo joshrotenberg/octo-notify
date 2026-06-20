@@ -1,0 +1,62 @@
+[
+  {
+    "id": "123456789",
+    "unread": true,
+    "reason": "mention",
+    "updated_at": "2024-05-01T10:00:00Z",
+    "last_read_at": null,
+    "subject": {
+      "title": "Fix the flaky test",
+      "url": "https://api.github.com/repos/octocat/hello-world/issues/42",
+      "latest_comment_url": "https://api.github.com/repos/octocat/hello-world/issues/comments/999",
+      "type": "Issue"
+    },
+    "repository": {
+      "id": 1296269,
+      "name": "hello-world",
+      "full_name": "octocat/hello-world",
+      "private": false,
+      "fork": false,
+      "html_url": "https://github.com/octocat/hello-world",
+      "owner": {
+        "login": "octocat",
+        "id": 583231,
+        "html_url": "https://github.com/octocat",
+        "type": "User",
+        "site_admin": false
+      }
+    },
+    "url": "https://api.github.com/notifications/threads/123456789",
+    "subscription_url": "https://api.github.com/notifications/threads/123456789/subscription"
+  },
+  {
+    "id": "987654321",
+    "unread": true,
+    "reason": "brand_new_reason_2099",
+    "updated_at": "2024-05-02T08:30:00Z",
+    "last_read_at": "2024-05-02T09:00:00Z",
+    "subject": {
+      "title": "Something the future invented",
+      "url": "https://api.github.com/repos/octocat/spec/pulls/7",
+      "latest_comment_url": null,
+      "type": "MysteryType"
+    },
+    "repository": {
+      "id": 7654321,
+      "name": "spec",
+      "full_name": "octocat/spec",
+      "private": true,
+      "fork": false,
+      "html_url": "https://github.com/octocat/spec",
+      "owner": {
+        "login": "octocat",
+        "id": 583231,
+        "html_url": "https://github.com/octocat",
+        "type": "User",
+        "site_admin": false
+      }
+    },
+    "url": "https://api.github.com/notifications/threads/987654321",
+    "subscription_url": "https://api.github.com/notifications/threads/987654321/subscription"
+  }
+]
