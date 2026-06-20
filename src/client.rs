@@ -18,9 +18,38 @@ use crate::models::ThreadId;
 use crate::pagination::{Listing, NotModified, Page, parse_link_next};
 use crate::rate_limit::RateLimit;
 
+#[cfg(feature = "retry")]
+use chrono::Utc;
+
 const DEFAULT_BASE_URL: &str = "https://api.github.com/";
 const DEFAULT_USER_AGENT: &str = concat!("octo-notify/", env!("CARGO_PKG_VERSION"));
 const GITHUB_API_VERSION: &str = "2022-11-28";
+
+/// Controls automatic retrying of rate-limited one-shot calls. Requires the `retry` feature.
+///
+/// Not setting a policy on the client (the default) means no retrying: rate limits surface as
+/// [`Error::RateLimited`](crate::Error::RateLimited).
+#[cfg(feature = "retry")]
+#[derive(Debug, Clone)]
+pub struct RetryPolicy {
+    /// Retry secondary (abuse) limits, honoring the `Retry-After` header.
+    pub retry_secondary: bool,
+    /// Retry primary limit exhaustion by waiting until the reset time (capped at one hour).
+    pub retry_primary: bool,
+    /// Maximum number of retries before the rate-limited response is returned.
+    pub max_retries: u32,
+}
+
+#[cfg(feature = "retry")]
+impl Default for RetryPolicy {
+    fn default() -> Self {
+        RetryPolicy {
+            retry_secondary: true,
+            retry_primary: false,
+            max_retries: 3,
+        }
+    }
+}
 
 /// A client for the GitHub Notifications API.
 ///
@@ -30,6 +59,8 @@ pub struct Client {
     http: reqwest::Client,
     base_url: Url,
     auth: Auth,
+    #[cfg(feature = "retry")]
+    retry: Option<RetryPolicy>,
 }
 
 impl Client {
@@ -81,8 +112,14 @@ impl Client {
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response> {
         let token = self.auth.bearer().await?;
-        let response = request.bearer_auth(token.expose_secret()).send().await?;
-        Ok(response)
+        let request = request.bearer_auth(token.expose_secret());
+
+        #[cfg(feature = "retry")]
+        if let Some(policy) = &self.retry {
+            return execute_with_retry(request, policy).await;
+        }
+
+        Ok(request.send().await?)
     }
 
     /// GET a listing URL, optionally conditional, and interpret it.
@@ -195,6 +232,8 @@ pub struct ClientBuilder {
     base_url: String,
     user_agent: String,
     http: Option<reqwest::Client>,
+    #[cfg(feature = "retry")]
+    retry: Option<RetryPolicy>,
 }
 
 impl ClientBuilder {
@@ -204,6 +243,8 @@ impl ClientBuilder {
             base_url: DEFAULT_BASE_URL.to_owned(),
             user_agent: DEFAULT_USER_AGENT.to_owned(),
             http: None,
+            #[cfg(feature = "retry")]
+            retry: None,
         }
     }
 
@@ -230,6 +271,13 @@ impl ClientBuilder {
     /// Default headers managed by this crate are still applied on top.
     pub fn http_client(mut self, http: reqwest::Client) -> Self {
         self.http = Some(http);
+        self
+    }
+
+    /// Automatically retry rate-limited requests per `policy`. Requires the `retry` feature.
+    #[cfg(feature = "retry")]
+    pub fn retry(mut self, policy: RetryPolicy) -> Self {
+        self.retry = Some(policy);
         self
     }
 
@@ -271,6 +319,8 @@ impl ClientBuilder {
             http,
             base_url,
             auth,
+            #[cfg(feature = "retry")]
+            retry: self.retry,
         })
     }
 }
@@ -321,6 +371,61 @@ fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse::<u64>().ok())
         .map(Duration::from_secs)
+}
+
+#[cfg(feature = "retry")]
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(3600);
+
+#[cfg(feature = "retry")]
+impl RetryPolicy {
+    /// The delay to wait before retrying `response`, or `None` if it should not be retried.
+    fn retry_delay(&self, response: &reqwest::Response) -> Option<Duration> {
+        let status = response.status();
+        if status != StatusCode::FORBIDDEN && status != StatusCode::TOO_MANY_REQUESTS {
+            return None;
+        }
+        let headers = response.headers();
+        if self.retry_secondary {
+            if let Some(delay) = parse_retry_after(headers) {
+                return Some(delay);
+            }
+        }
+        if self.retry_primary {
+            let rate_limit = RateLimit::from_headers(headers);
+            if rate_limit.remaining == Some(0) {
+                return Some(match rate_limit.reset_at {
+                    Some(reset) => (reset - Utc::now())
+                        .to_std()
+                        .unwrap_or(Duration::from_secs(1))
+                        .min(MAX_RETRY_WAIT),
+                    None => Duration::from_secs(1),
+                });
+            }
+        }
+        None
+    }
+}
+
+#[cfg(feature = "retry")]
+async fn execute_with_retry(
+    request: reqwest::RequestBuilder,
+    policy: &RetryPolicy,
+) -> Result<reqwest::Response> {
+    let mut attempt = 0u32;
+    loop {
+        let response = match request.try_clone() {
+            Some(req) => req.send().await?,
+            None => return Ok(request.send().await?),
+        };
+        if attempt < policy.max_retries {
+            if let Some(delay) = policy.retry_delay(&response) {
+                tokio::time::sleep(delay).await;
+                attempt += 1;
+                continue;
+            }
+        }
+        return Ok(response);
+    }
 }
 
 fn header_string(headers: &HeaderMap, name: HeaderName) -> Option<String> {

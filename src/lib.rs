@@ -87,6 +87,8 @@ pub mod rate_limit;
 #[cfg(feature = "token-refresh")]
 pub use auth::RefreshingToken;
 pub use auth::{Auth, TokenProvider};
+#[cfg(feature = "retry")]
+pub use client::RetryPolicy;
 pub use client::{Client, ClientBuilder};
 pub use endpoints::{
     ListNotifications, MarkAllRead, NotificationsHandler, RepoHandler, RepoNotificationsHandler,
