@@ -270,6 +270,18 @@ impl Client {
 }
 
 /// Builder for [`Client`].
+///
+/// ```no_run
+/// use octo_notify::{Auth, Client};
+/// # fn main() -> octo_notify::Result<()> {
+/// let client = Client::builder()
+///     .auth(Auth::from_env()?)
+///     .user_agent("my-app/1.0")
+///     .build()?;
+/// # let _ = client;
+/// # Ok(())
+/// # }
+/// ```
 #[derive(Debug)]
 pub struct ClientBuilder {
     auth: Option<Auth>,
