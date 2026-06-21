@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-21
+
+### Added
+
+- *(examples)* Add --state to the watch example ([#30](https://github.com/joshrotenberg/octo-notify/pull/30))
+- Opt-in PollConfig::prune_after to auto-prune seen state ([#32](https://github.com/joshrotenberg/octo-notify/pull/32))
+- Fetch_subject to resolve a notification's subject JSON ([#36](https://github.com/joshrotenberg/octo-notify/pull/36))
+- Tracing instrumentation behind a tracing feature ([#37](https://github.com/joshrotenberg/octo-notify/pull/37))
+- Reactive token refresh on 401 ([#38](https://github.com/joshrotenberg/octo-notify/pull/38))
+- SqliteStore for persistent dedupe state ([#40](https://github.com/joshrotenberg/octo-notify/pull/40))
+- Ship an octo-notify CLI behind a cli feature ([#43](https://github.com/joshrotenberg/octo-notify/pull/43))
+- Octo-notify dispatch - run commands from notifications ([#44](https://github.com/joshrotenberg/octo-notify/pull/44))
+
+### Documentation
+
+- Add item-level rustdoc examples ([#42](https://github.com/joshrotenberg/octo-notify/pull/42))
+
+### Testing
+
+- GitHub Enterprise Server base-path coverage ([#41](https://github.com/joshrotenberg/octo-notify/pull/41))
+
+
+
 ## [0.1.0] - 2026-06-20
 
 ### Added
