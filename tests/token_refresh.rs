@@ -6,8 +6,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use chrono::{Duration as ChronoDuration, Utc};
-use octo_notify::{RefreshingToken, SecretString, TokenProvider};
+use octo_notify::{Auth, Client, RefreshingToken, SecretString, TokenProvider};
 use secrecy::ExposeSecret;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
 async fn caches_fresh_token() {
@@ -92,5 +94,53 @@ async fn single_refresh_under_concurrency() {
         calls.load(Ordering::SeqCst),
         1,
         "concurrent callers should share one in-flight refresh"
+    );
+}
+
+#[tokio::test]
+async fn reactive_refresh_on_401() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/notifications"))
+        .respond_with(ResponseTemplate::new(401))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/notifications"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw("[]", "application/json"))
+        .mount(&server)
+        .await;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let provider = RefreshingToken::new(move || {
+        let counter = counter.clone();
+        async move {
+            let n = counter.fetch_add(1, Ordering::SeqCst);
+            Ok((
+                SecretString::new(format!("t{n}").into_boxed_str()),
+                Utc::now() + ChronoDuration::hours(1),
+            ))
+        }
+    });
+    let client = Client::builder()
+        .auth(Auth::provider(provider))
+        .base_url(server.uri())
+        .user_agent("octo-notify-tests")
+        .build()
+        .unwrap();
+
+    let listing = client
+        .notifications()
+        .list()
+        .send()
+        .await
+        .expect("retry with fresh token succeeds");
+    assert!(listing.is_modified());
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "initial token plus one refresh after the 401"
     );
 }
