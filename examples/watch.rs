@@ -2,11 +2,15 @@
 //!
 //! ```text
 //! GITHUB_TOKEN=$(gh auth token) cargo run --example watch -- --interval 60
+//!
+//! # persist dedupe state across restarts (needs the file-store feature):
+//! GITHUB_TOKEN=$(gh auth token) cargo run --example watch --features file-store -- --state octo.json
 //! ```
 //!
 //! Press Ctrl-C to stop; the poller shuts down cooperatively at the next tick boundary.
 //! Like `inbox`, this is a seed for a standalone CLI that could be spun out later.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::Parser;
@@ -14,6 +18,9 @@ use futures::StreamExt;
 use octo_notify::app::Event;
 use octo_notify::{Auth, Client};
 use tokio_util::sync::CancellationToken;
+
+#[cfg(feature = "file-store")]
+use octo_notify::app::JsonFileStore;
 
 /// Watch GitHub notifications.
 #[derive(Parser, Debug)]
@@ -34,6 +41,11 @@ struct Args {
     /// Emit the current inbox once on start, instead of only new activity.
     #[arg(long)]
     show_existing: bool,
+
+    /// Persist dedupe state to this file so restarts resume without re-firing
+    /// (requires building with `--features file-store`).
+    #[arg(long, value_name = "PATH")]
+    state: Option<PathBuf>,
 }
 
 #[tokio::main]
@@ -49,14 +61,28 @@ async fn main() -> anyhow::Result<()> {
         shutdown.cancel();
     });
 
-    let poller = client
+    let builder = client
         .poller()
         .min_interval(Duration::from_secs(args.interval))
         .participating_only(args.participating)
         .include_read(args.all)
         .emit_existing_on_start(args.show_existing)
-        .cancellation(cancel)
-        .build();
+        .cancellation(cancel);
+
+    #[cfg(feature = "file-store")]
+    let builder = match &args.state {
+        Some(path) => {
+            eprintln!("persisting state to {}", path.display());
+            builder.store(JsonFileStore::open(path)?)
+        }
+        None => builder,
+    };
+    #[cfg(not(feature = "file-store"))]
+    if args.state.is_some() {
+        eprintln!("--state requires building with --features file-store; using in-memory state");
+    }
+
+    let poller = builder.build();
 
     eprintln!("watching (interval >= {}s); Ctrl-C to stop", args.interval);
     let mut events = Box::pin(poller.stream());
