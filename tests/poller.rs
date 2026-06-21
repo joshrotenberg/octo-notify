@@ -172,3 +172,44 @@ async fn cancellation_ends_the_stream() {
         .expect("stream resolves promptly");
     assert!(next.is_none(), "cancelled stream should end");
 }
+
+#[tokio::test]
+async fn prune_after_drops_old_seen_records() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/notifications"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Last-Modified", "Mon, 01 Jan 2024 00:00:00 GMT")
+                .set_body_raw("[]", "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let store = MemoryStore::new();
+    let old: DateTime<Utc> = "2020-01-01T00:00:00Z".parse().unwrap();
+    let recent = Utc::now();
+    store.record_seen(&"old".into(), old).await.unwrap();
+    store.record_seen(&"recent".into(), recent).await.unwrap();
+
+    let poller = client_for(&server)
+        .poller()
+        .min_interval(Duration::from_millis(20))
+        .prune_after(Duration::from_secs(3600))
+        .store(store.clone())
+        .build();
+
+    // Drive at least one loop iteration; prune runs at the top of each tick.
+    let mut stream = Box::pin(poller.stream());
+    let _ = tokio::time::timeout(Duration::from_millis(200), stream.next()).await;
+    drop(stream);
+
+    assert!(
+        store.seen(&"old".into()).await.unwrap().is_none(),
+        "old record should be pruned"
+    );
+    assert!(
+        store.seen(&"recent".into()).await.unwrap().is_some(),
+        "recent record should be kept"
+    );
+}

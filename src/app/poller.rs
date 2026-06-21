@@ -98,6 +98,9 @@ pub struct PollConfig {
     pub respect_server_interval: bool,
     /// Emit the existing inbox on the first tick, instead of only deltas afterward.
     pub emit_existing_on_start: bool,
+    /// If set, prune seen-records older than this on each tick, bounding store growth.
+    /// `None` (the default) never prunes.
+    pub prune_after: Option<Duration>,
 }
 
 impl Default for PollConfig {
@@ -109,6 +112,7 @@ impl Default for PollConfig {
             min_interval: Duration::from_secs(60),
             respect_server_interval: true,
             emit_existing_on_start: false,
+            prune_after: None,
         }
     }
 }
@@ -231,6 +235,13 @@ impl PollerBuilder {
         self
     }
 
+    /// Prune seen-records older than `window` on each tick, bounding store growth.
+    /// Off by default.
+    pub fn prune_after(mut self, window: Duration) -> Self {
+        self.config.prune_after = Some(window);
+        self
+    }
+
     /// Use a custom [`StateStore`] (default: an in-memory store).
     pub fn store(mut self, store: impl StateStore + 'static) -> Self {
         self.store = Some(Box::new(store));
@@ -318,6 +329,16 @@ impl Poller {
                 if let Some(token) = &cancel {
                     if token.is_cancelled() {
                         break;
+                    }
+                }
+
+                // Bound store growth: drop seen-records older than the configured window.
+                if let Some(window) = config.prune_after {
+                    if let Ok(window) = chrono::Duration::from_std(window) {
+                        if let Err(e) = store.prune(Utc::now() - window).await {
+                            yield Err(e);
+                            return;
+                        }
                     }
                 }
 
