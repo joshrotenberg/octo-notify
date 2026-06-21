@@ -25,6 +25,7 @@ tracing = { version = "0.1", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 anyhow = { version = "1", optional = true }
+toml = { version = "0.8", optional = true }
 futures = { version = "0.3", optional = true }
 async-stream = { version = "0.3", optional = true }
 tokio = { version = "1", optional = true, features = ["time"] }
@@ -53,10 +54,12 @@ cli = [
     "retry",
     "dep:clap",
     "dep:anyhow",
+    "dep:toml",
     "dep:tokio",
     "tokio/rt-multi-thread",
     "tokio/macros",
     "tokio/signal",
+    "tokio/process",
 ]
 
 [[bin]]

@@ -12,7 +12,7 @@ use std::time::Duration;
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use octo_notify::app::{Event, JsonFileStore};
-use octo_notify::{Auth, Client, Listing};
+use octo_notify::{Auth, Client, Listing, Notification};
 use tokio_util::sync::CancellationToken;
 
 /// Work with your GitHub notifications inbox.
@@ -55,6 +55,27 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         state: Option<PathBuf>,
     },
+    /// Watch notifications and run a command per event, per a TOML rules file.
+    Dispatch {
+        /// Path to the TOML rules file.
+        #[arg(long, value_name = "PATH")]
+        config: PathBuf,
+        /// Minimum seconds between polls (the server may request longer).
+        #[arg(long, default_value_t = 60)]
+        interval: u64,
+        /// Only notifications you're directly participating in.
+        #[arg(long)]
+        participating: bool,
+        /// Include notifications already marked as read.
+        #[arg(long)]
+        all: bool,
+        /// Process the current inbox once on start, instead of only new activity.
+        #[arg(long)]
+        show_existing: bool,
+        /// Persist dedupe state so restarts resume without re-firing.
+        #[arg(long, value_name = "PATH")]
+        state: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -74,6 +95,25 @@ async fn main() -> anyhow::Result<()> {
             show_existing,
             state,
         } => watch(client, interval, participating, all, show_existing, state).await,
+        Command::Dispatch {
+            config,
+            interval,
+            participating,
+            all,
+            show_existing,
+            state,
+        } => {
+            dispatch(
+                client,
+                config,
+                interval,
+                participating,
+                all,
+                show_existing,
+                state,
+            )
+            .await
+        }
     }
 }
 
@@ -172,4 +212,211 @@ async fn watch(
         }
     }
     Ok(())
+}
+
+/// A dispatch rules file: `match` mode plus a list of `[[rule]]`s.
+#[derive(serde::Deserialize, Default)]
+struct DispatchConfig {
+    #[serde(rename = "match", default)]
+    match_mode: MatchMode,
+    #[serde(default)]
+    rule: Vec<Rule>,
+}
+
+#[derive(serde::Deserialize, Default, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum MatchMode {
+    /// Run only the first matching rule.
+    #[default]
+    First,
+    /// Run every matching rule.
+    All,
+}
+
+#[derive(serde::Deserialize)]
+struct Rule {
+    reason: Option<String>,
+    subject_type: Option<String>,
+    repo: Option<String>,
+    run: String,
+    mark: Option<MarkAction>,
+}
+
+#[derive(serde::Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum MarkAction {
+    Read,
+    Done,
+}
+
+/// A rule matches when each of its set matchers matches (omitted matchers match anything).
+fn rule_matches(rule: &Rule, n: &Notification) -> bool {
+    rule.reason
+        .as_deref()
+        .is_none_or(|r| r == n.reason.as_str())
+        && rule
+            .subject_type
+            .as_deref()
+            .is_none_or(|t| t == n.subject.kind.as_str())
+        && rule
+            .repo
+            .as_deref()
+            .is_none_or(|r| r == n.repository.full_name)
+}
+
+fn subject_url(n: &Notification) -> &str {
+    n.subject.url.as_ref().map(|u| u.as_str()).unwrap_or("")
+}
+
+fn render(template: &str, n: &Notification) -> String {
+    template
+        .replace("{repo}", &n.repository.full_name)
+        .replace("{thread_id}", n.id.as_str())
+        .replace("{title}", &n.subject.title)
+        .replace("{url}", subject_url(n))
+        .replace("{reason}", n.reason.as_str())
+        .replace("{type}", n.subject.kind.as_str())
+}
+
+async fn run_command(cmd: &str, n: &Notification) -> std::io::Result<std::process::ExitStatus> {
+    let mut command = if cfg!(windows) {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(cmd);
+        c
+    } else {
+        let mut c = tokio::process::Command::new("sh");
+        c.arg("-c").arg(cmd);
+        c
+    };
+    command
+        .env("OCTO_REPO", &n.repository.full_name)
+        .env("OCTO_THREAD_ID", n.id.as_str())
+        .env("OCTO_TITLE", &n.subject.title)
+        .env("OCTO_URL", subject_url(n))
+        .env("OCTO_REASON", n.reason.as_str())
+        .env("OCTO_TYPE", n.subject.kind.as_str());
+    command.status().await
+}
+
+async fn dispatch(
+    client: Client,
+    config: PathBuf,
+    interval: u64,
+    participating: bool,
+    all: bool,
+    show_existing: bool,
+    state: Option<PathBuf>,
+) -> anyhow::Result<()> {
+    let text = std::fs::read_to_string(&config)?;
+    let cfg: DispatchConfig = toml::from_str(&text)?;
+
+    let cancel = CancellationToken::new();
+    let shutdown = cancel.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        eprintln!("\nshutting down at next tick...");
+        shutdown.cancel();
+    });
+
+    let builder = client
+        .poller()
+        .min_interval(Duration::from_secs(interval))
+        .participating_only(participating)
+        .include_read(all)
+        .emit_existing_on_start(show_existing)
+        .cancellation(cancel);
+    let builder = match state {
+        Some(path) => builder.store(JsonFileStore::open(path)?),
+        None => builder,
+    };
+    let poller = builder.build();
+
+    eprintln!(
+        "dispatching ({} rule(s); interval >= {interval}s); Ctrl-C to stop",
+        cfg.rule.len()
+    );
+    let mut events = Box::pin(poller.stream());
+    while let Some(event) = events.next().await {
+        let n = match event {
+            Ok(e) => e.into_notification(),
+            Err(e) => {
+                eprintln!("error: {e}");
+                continue;
+            }
+        };
+        let mut matching = cfg.rule.iter().filter(|r| rule_matches(r, &n));
+        let selected: Vec<&Rule> = match cfg.match_mode {
+            MatchMode::First => matching.next().into_iter().collect(),
+            MatchMode::All => matching.collect(),
+        };
+        for rule in selected {
+            let rendered = render(&rule.run, &n);
+            match run_command(&rendered, &n).await {
+                Ok(status) if status.success() => {
+                    if let Some(mark) = rule.mark {
+                        let result = match mark {
+                            MarkAction::Read => client.thread(n.id.clone()).mark_read().await,
+                            MarkAction::Done => client.thread(n.id.clone()).mark_done().await,
+                        };
+                        if let Err(e) = result {
+                            eprintln!("mark failed for {}: {e}", n.id);
+                        }
+                    }
+                }
+                Ok(status) => eprintln!("command exited ({status}) for {}", n.id),
+                Err(e) => eprintln!("command failed for {}: {e}", n.id),
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample() -> Notification {
+        serde_json::from_str(
+            r#"{
+                "id": "1", "unread": true, "reason": "mention",
+                "updated_at": "2024-05-01T10:00:00Z", "last_read_at": null,
+                "subject": {"title":"Hello","url":"https://api.github.com/repos/octocat/hello/issues/1","latest_comment_url":null,"type":"Issue"},
+                "repository": {"id":1,"name":"hello","full_name":"octocat/hello","private":false,"fork":false,"html_url":"https://github.com/octocat/hello","owner":{"login":"octocat","id":1,"html_url":"https://github.com/octocat","type":"User"}},
+                "url":"https://api.github.com/notifications/threads/1",
+                "subscription_url":"https://api.github.com/notifications/threads/1/subscription"
+            }"#,
+        )
+        .unwrap()
+    }
+
+    fn rule(reason: Option<&str>, subject_type: Option<&str>, repo: Option<&str>) -> Rule {
+        Rule {
+            reason: reason.map(String::from),
+            subject_type: subject_type.map(String::from),
+            repo: repo.map(String::from),
+            run: String::new(),
+            mark: None,
+        }
+    }
+
+    #[test]
+    fn matchers_are_anded_and_omitted_match_all() {
+        let n = sample();
+        assert!(rule_matches(&rule(None, None, None), &n));
+        assert!(rule_matches(
+            &rule(Some("mention"), Some("Issue"), Some("octocat/hello")),
+            &n
+        ));
+        assert!(!rule_matches(&rule(Some("author"), None, None), &n));
+        assert!(!rule_matches(&rule(None, Some("PullRequest"), None), &n));
+    }
+
+    #[test]
+    fn render_substitutes_placeholders() {
+        let n = sample();
+        assert_eq!(
+            render("{reason} {repo} {type} #{thread_id}", &n),
+            "mention octocat/hello Issue #1"
+        );
+    }
 }
