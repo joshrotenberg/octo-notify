@@ -14,7 +14,7 @@ use crate::endpoints::notifications::NotificationsHandler;
 use crate::endpoints::repo::RepoHandler;
 use crate::endpoints::threads::ThreadHandler;
 use crate::error::{Error, RateLimitKind, Result};
-use crate::models::ThreadId;
+use crate::models::{Notification, ThreadId};
 use crate::pagination::{Listing, NotModified, Page, parse_link_next};
 use crate::rate_limit::RateLimit;
 
@@ -94,6 +94,24 @@ impl Client {
             client: self,
             id: id.into(),
         }
+    }
+
+    /// Fetch the raw JSON the notification's subject points at (issue, pull request, commit,
+    /// release, ...). Returns `Ok(None)` if the subject has no URL.
+    ///
+    /// This is the one bridge to general GitHub resources: the result is `serde_json::Value`
+    /// rather than a typed model, keeping the crate focused on notifications.
+    pub async fn fetch_subject(
+        &self,
+        notification: &Notification,
+    ) -> Result<Option<serde_json::Value>> {
+        let Some(url) = notification.subject.url.clone() else {
+            return Ok(None);
+        };
+        let response = self.execute(self.request(Method::GET, url)).await?;
+        self.interpret_one::<serde_json::Value>(response)
+            .await
+            .map(Some)
     }
 
     /// Join a relative API path onto the configured base URL.
