@@ -172,9 +172,28 @@
 //! | `file-store` | no | `JsonFileStore`, file-backed state for cross-restart dedupe |
 //! | `token-refresh` | no | `RefreshingToken` for expiring credentials |
 //! | `retry` | no | `RetryPolicy` for auto-retrying rate-limited calls |
+//! | `tracing` | no | Structured `tracing` instrumentation of requests and the poller |
+//!
+//! With the `tracing` feature on, install any `tracing` subscriber (for example
+//! `tracing-subscriber`) in your application to see request, rate-limit, and poller events.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+/// Emit a `tracing` debug event when the `tracing` feature is on; a no-op otherwise.
+macro_rules! tdebug {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        ::tracing::debug!($($arg)*);
+    }};
+}
+/// Emit a `tracing` warn event when the `tracing` feature is on; a no-op otherwise.
+macro_rules! twarn {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        ::tracing::warn!($($arg)*);
+    }};
+}
 
 #[cfg(feature = "stream")]
 pub mod app;

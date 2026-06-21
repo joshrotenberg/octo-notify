@@ -21,6 +21,7 @@ url = { version = "2", features = ["serde"] }
 thiserror = "2"
 async-trait = "0.1"
 secrecy = "0.10"
+tracing = { version = "0.1", optional = true }
 futures = { version = "0.3", optional = true }
 async-stream = { version = "0.3", optional = true }
 tokio = { version = "1", optional = true, features = ["time"] }
@@ -38,6 +39,8 @@ file-store = ["stream"]
 token-refresh = ["dep:tokio", "tokio/sync"]
 # RetryPolicy: auto-retry rate-limited one-shot calls.
 retry = ["dep:tokio", "tokio/time"]
+# Structured tracing instrumentation across the client and poller.
+tracing = ["dep:tracing"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
