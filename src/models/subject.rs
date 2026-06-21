@@ -41,6 +41,14 @@ impl Subject {
 /// The type of a notification subject.
 ///
 /// Forward-compatible: unrecognized values land in [`SubjectType::Unknown`].
+///
+/// ```
+/// use octo_notify::SubjectType;
+/// let kind: SubjectType = serde_json::from_str("\"PullRequest\"").unwrap();
+/// assert_eq!(kind, SubjectType::PullRequest);
+/// let future: SubjectType = serde_json::from_str("\"FutureType\"").unwrap();
+/// assert!(future.is_unknown());
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum SubjectType {

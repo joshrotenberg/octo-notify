@@ -9,6 +9,14 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// Forward-compatible: unrecognized values land in [`Reason::Unknown`] rather than failing
 /// to deserialize. The `reason` on a thread can change over time if a later event has a
 /// different reason.
+///
+/// ```
+/// use octo_notify::Reason;
+/// // A value this crate version does not know is captured, not rejected.
+/// let reason: Reason = serde_json::from_str("\"a_future_reason\"").unwrap();
+/// assert!(reason.is_unknown());
+/// assert_eq!(reason.as_str(), "a_future_reason");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Reason {

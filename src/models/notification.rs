@@ -11,6 +11,12 @@ use super::{MinimalRepository, Reason, Subject};
 /// Identifier for a notification thread.
 ///
 /// The API returns this as a string; the thread endpoints accept it in their path.
+///
+/// ```
+/// use octo_notify::ThreadId;
+/// assert_eq!(ThreadId::from(42u64).as_str(), "42");
+/// assert_eq!(ThreadId::from("123").to_string(), "123");
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ThreadId(pub String);
