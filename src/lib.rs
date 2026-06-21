@@ -174,6 +174,7 @@
 //! | `token-refresh` | no | `RefreshingToken` for expiring credentials |
 //! | `retry` | no | `RetryPolicy` for auto-retrying rate-limited calls |
 //! | `tracing` | no | Structured `tracing` instrumentation of requests and the poller |
+//! | `cli` | no | The `octo-notify` command-line binary (`cargo install octo-notify --features cli`) |
 //!
 //! With the `tracing` feature on, install any `tracing` subscriber (for example
 //! `tracing-subscriber`) in your application to see request, rate-limit, and poller events.
