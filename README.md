@@ -83,12 +83,18 @@ async fn main() -> octo_notify::Result<()> {
 }
 ```
 
-Two runnable examples ship in [`examples/`](examples):
+## CLI
+
+A command-line tool ships behind the `cli` feature:
 
 ```sh
-GITHUB_TOKEN=$(gh auth token) cargo run --example inbox -- --all
-GITHUB_TOKEN=$(gh auth token) cargo run --example watch -- --all --show-existing
+cargo install octo-notify --features cli
+
+GITHUB_TOKEN=$(gh auth token) octo-notify inbox --all
+GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.json
 ```
+
+`watch --state <PATH>` persists dedupe state so restarts resume without re-firing.
 
 ## Design
 
@@ -122,6 +128,7 @@ a `CancellationToken`.
 | `token-refresh` | no | `RefreshingToken`, a caching `TokenProvider` for expiring credentials |
 | `retry` | no | `RetryPolicy`, auto-retry for rate-limited calls |
 | `tracing` | no | Structured `tracing` instrumentation of requests and the poller |
+| `cli` | no | The `octo-notify` command-line binary |
 
 Disable defaults for a minimal Layer-1 client: `default-features = false, features = ["rustls"]`.
 

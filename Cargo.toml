@@ -23,6 +23,8 @@ async-trait = "0.1"
 secrecy = "0.10"
 tracing = { version = "0.1", optional = true }
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
+anyhow = { version = "1", optional = true }
 futures = { version = "0.3", optional = true }
 async-stream = { version = "0.3", optional = true }
 tokio = { version = "1", optional = true, features = ["time"] }
@@ -44,13 +46,28 @@ token-refresh = ["dep:tokio", "tokio/sync"]
 retry = ["dep:tokio", "tokio/time"]
 # Structured tracing instrumentation across the client and poller.
 tracing = ["dep:tracing"]
+# The octo-notify command-line tool (binary). Batteries-included: poller, file state, retry.
+cli = [
+    "stream",
+    "file-store",
+    "retry",
+    "dep:clap",
+    "dep:anyhow",
+    "dep:tokio",
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+    "tokio/signal",
+]
+
+[[bin]]
+name = "octo-notify"
+path = "src/bin/octo-notify.rs"
+required-features = ["cli"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time", "signal"] }
 tokio-util = "0.7"
 wiremock = "0.6"
-clap = { version = "4", features = ["derive"] }
-anyhow = "1"
 futures = "0.3"
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 tempfile = "3"
