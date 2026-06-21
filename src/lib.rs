@@ -170,6 +170,7 @@
 //! | `native-tls` | no | TLS via the platform's native stack |
 //! | `stream` | yes | The poller engine and `stream()` pagination |
 //! | `file-store` | no | `JsonFileStore`, file-backed state for cross-restart dedupe |
+//! | `sqlite-store` | no | `SqliteStore`, SQLite-backed state |
 //! | `token-refresh` | no | `RefreshingToken` for expiring credentials |
 //! | `retry` | no | `RetryPolicy` for auto-retrying rate-limited calls |
 //! | `tracing` | no | Structured `tracing` instrumentation of requests and the poller |

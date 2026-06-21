@@ -13,3 +13,6 @@ pub use store::{MemoryStore, StateStore};
 
 #[cfg(feature = "file-store")]
 pub use store::JsonFileStore;
+
+#[cfg(feature = "sqlite-store")]
+pub use store::SqliteStore;

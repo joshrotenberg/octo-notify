@@ -15,10 +15,17 @@ use super::PollScope;
 use crate::error::Result;
 use crate::models::ThreadId;
 
-#[cfg(feature = "file-store")]
+#[cfg(any(feature = "file-store", feature = "sqlite-store"))]
 use crate::error::Error;
 #[cfg(feature = "file-store")]
 use std::path::PathBuf;
+
+#[cfg(feature = "sqlite-store")]
+use chrono::TimeZone;
+#[cfg(feature = "sqlite-store")]
+use rusqlite::{Connection, OptionalExtension};
+#[cfg(feature = "sqlite-store")]
+use std::path::Path;
 
 /// Persistence for poller state.
 ///
@@ -198,5 +205,103 @@ impl StateStore for JsonFileStore {
         let mut guard = self.inner.lock().unwrap();
         guard.seen.retain(|_, ts| *ts >= older_than);
         self.persist(&guard)
+    }
+}
+
+/// A [`StateStore`] backed by SQLite, for persistent dedupe with row-level writes (rather than
+/// the whole-file rewrite of [`JsonFileStore`]). Requires the `sqlite-store` feature.
+#[cfg(feature = "sqlite-store")]
+pub struct SqliteStore {
+    conn: Arc<Mutex<Connection>>,
+}
+
+#[cfg(feature = "sqlite-store")]
+fn sqlite_err(e: rusqlite::Error) -> Error {
+    Error::Io(std::io::Error::other(e))
+}
+
+#[cfg(feature = "sqlite-store")]
+impl SqliteStore {
+    /// Open (creating if absent) a SQLite store at `path`, initializing the schema.
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let conn = Connection::open(path).map_err(sqlite_err)?;
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS last_modified (scope TEXT PRIMARY KEY, value TEXT NOT NULL);
+             CREATE TABLE IF NOT EXISTS seen (thread_id TEXT PRIMARY KEY, updated_at INTEGER NOT NULL);",
+        )
+        .map_err(sqlite_err)?;
+        Ok(SqliteStore {
+            conn: Arc::new(Mutex::new(conn)),
+        })
+    }
+}
+
+#[cfg(feature = "sqlite-store")]
+#[async_trait]
+impl StateStore for SqliteStore {
+    async fn last_modified(&self, scope: &PollScope) -> Result<Option<String>> {
+        self.conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT value FROM last_modified WHERE scope = ?1",
+                [scope.key()],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(sqlite_err)
+    }
+
+    async fn set_last_modified(&self, scope: &PollScope, value: &str) -> Result<()> {
+        self.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO last_modified (scope, value) VALUES (?1, ?2)
+                 ON CONFLICT(scope) DO UPDATE SET value = ?2",
+                (scope.key(), value),
+            )
+            .map(|_| ())
+            .map_err(sqlite_err)
+    }
+
+    async fn seen(&self, id: &ThreadId) -> Result<Option<DateTime<Utc>>> {
+        let millis: Option<i64> = self
+            .conn
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT updated_at FROM seen WHERE thread_id = ?1",
+                [id.as_str()],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(sqlite_err)?;
+        Ok(millis.and_then(|ms| Utc.timestamp_millis_opt(ms).single()))
+    }
+
+    async fn record_seen(&self, id: &ThreadId, updated_at: DateTime<Utc>) -> Result<()> {
+        self.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO seen (thread_id, updated_at) VALUES (?1, ?2)
+                 ON CONFLICT(thread_id) DO UPDATE SET updated_at = ?2",
+                (id.as_str(), updated_at.timestamp_millis()),
+            )
+            .map(|_| ())
+            .map_err(sqlite_err)
+    }
+
+    async fn prune(&self, older_than: DateTime<Utc>) -> Result<()> {
+        self.conn
+            .lock()
+            .unwrap()
+            .execute(
+                "DELETE FROM seen WHERE updated_at < ?1",
+                [older_than.timestamp_millis()],
+            )
+            .map(|_| ())
+            .map_err(sqlite_err)
     }
 }
