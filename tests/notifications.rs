@@ -165,3 +165,26 @@ async fn primary_rate_limit_maps_to_rate_limited() {
         other => panic!("expected RateLimited, got {other:?}"),
     }
 }
+
+#[tokio::test]
+async fn static_token_does_not_retry_on_401() {
+    let server = MockServer::start().await;
+    // expect(1): a static token must not retry on 401.
+    Mock::given(method("GET"))
+        .and(path("/notifications"))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_raw(r#"{"message":"Bad credentials"}"#, "application/json"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let err = client_for(&server)
+        .notifications()
+        .list()
+        .send()
+        .await
+        .expect_err("401 surfaces");
+    assert!(matches!(err, Error::Unauthorized), "got {err:?}");
+}

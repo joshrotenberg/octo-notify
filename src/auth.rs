@@ -36,6 +36,15 @@ use chrono::{DateTime, Utc};
 pub trait TokenProvider: Send + Sync + fmt::Debug {
     /// Produce the current bearer token.
     async fn token(&self) -> Result<SecretString>;
+
+    /// Invalidate any cached token so the next [`token`](TokenProvider::token) refetches.
+    ///
+    /// Returns `true` if something was invalidated, signaling that retrying with a fresh token
+    /// may help (the client uses this to retry once after a `401`). The default is a no-op
+    /// returning `false`, which is correct for static tokens.
+    async fn invalidate(&self) -> bool {
+        false
+    }
 }
 
 /// How the client authenticates.
@@ -78,6 +87,11 @@ impl Auth {
     /// Resolve the current bearer token. Used internally per request.
     pub(crate) async fn bearer(&self) -> Result<SecretString> {
         self.provider.token().await
+    }
+
+    /// Invalidate the provider's cached token; returns whether anything was invalidated.
+    pub(crate) async fn invalidate(&self) -> bool {
+        self.provider.invalidate().await
     }
 }
 
@@ -211,6 +225,10 @@ impl TokenProvider for RefreshingToken {
         let handed_out = clone_secret(&token);
         *cache = Some(Cached { token, expires_at });
         Ok(handed_out)
+    }
+
+    async fn invalidate(&self) -> bool {
+        self.cache.lock().await.take().is_some()
     }
 }
 

@@ -129,15 +129,36 @@ impl Client {
         &self,
         request: reqwest::RequestBuilder,
     ) -> Result<reqwest::Response> {
+        let unauthed = request.try_clone();
         let token = self.auth.bearer().await?;
         let request = request.bearer_auth(token.expose_secret());
 
-        #[cfg(feature = "retry")]
-        if let Some(policy) = &self.retry {
-            return execute_with_retry(request, policy).await;
+        let response = {
+            #[cfg(feature = "retry")]
+            {
+                match &self.retry {
+                    Some(policy) => execute_with_retry(request, policy).await?,
+                    None => request.send().await?,
+                }
+            }
+            #[cfg(not(feature = "retry"))]
+            {
+                request.send().await?
+            }
+        };
+
+        // Reactive token refresh: on a 401, if the provider invalidates a cached token, retry
+        // once with a fresh token. A no-op for static tokens (invalidate returns false).
+        if response.status() == StatusCode::UNAUTHORIZED {
+            if let Some(unauthed) = unauthed {
+                if self.auth.invalidate().await {
+                    let fresh = self.auth.bearer().await?;
+                    return Ok(unauthed.bearer_auth(fresh.expose_secret()).send().await?);
+                }
+            }
         }
 
-        Ok(request.send().await?)
+        Ok(response)
     }
 
     /// GET a listing URL, optionally conditional, and interpret it.
