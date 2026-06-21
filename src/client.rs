@@ -173,6 +173,7 @@ impl Client {
                 let body = resp.text().await?;
                 let items = serde_json::from_str::<Vec<T>>(&body)
                     .map_err(|source| Error::Deserialize { source, body })?;
+                tdebug!(items = items.len(), remaining = ?rate_limit.remaining, "list 200");
                 Ok(Listing::Modified(Page {
                     items,
                     poll_interval,
@@ -181,11 +182,14 @@ impl Client {
                     next,
                 }))
             }
-            StatusCode::NOT_MODIFIED => Ok(Listing::NotModified(NotModified {
-                poll_interval,
-                last_modified,
-                rate_limit,
-            })),
+            StatusCode::NOT_MODIFIED => {
+                tdebug!(remaining = ?rate_limit.remaining, "list 304");
+                Ok(Listing::NotModified(NotModified {
+                    poll_interval,
+                    last_modified,
+                    rate_limit,
+                }))
+            }
             _ => Err(self.error_for(status, resp).await),
         }
     }
@@ -217,6 +221,7 @@ impl Client {
 
     /// Map a non-success status to the right [`Error`], distinguishing rate limits.
     async fn error_for(&self, status: StatusCode, resp: reqwest::Response) -> Error {
+        twarn!(status = status.as_u16(), "request failed");
         match status {
             StatusCode::UNAUTHORIZED => Error::Unauthorized,
             StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS => {

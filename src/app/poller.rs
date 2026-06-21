@@ -346,6 +346,7 @@ impl Poller {
                 let (notifications, server_interval, tick_last_modified) = match outcome {
                     Ok(TickOutcome::NotModified { server_interval }) => {
                         // Our watermark is current; nothing to seed or emit.
+                        tdebug!("tick: not modified");
                         first_tick = false;
                         let interval = effective_interval(&config, server_interval);
                         if sleep_or_cancel(interval, &cancel).await {
@@ -364,6 +365,7 @@ impl Poller {
                             break;
                         }
                         failures += 1;
+                        twarn!(attempt = failures, "transient error; backing off");
                         let exceeded = error_policy
                             .max_consecutive_failures
                             .is_some_and(|max| failures > max);
@@ -384,6 +386,7 @@ impl Poller {
 
                 let mut sorted = notifications;
                 sorted.sort_by_key(|n| n.updated_at);
+                tdebug!(fetched = sorted.len(), "tick");
 
                 for n in sorted {
                     if !filters.matches(&n) {
