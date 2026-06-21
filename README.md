@@ -96,6 +96,32 @@ GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.jso
 
 `watch --state <PATH>` persists dedupe state so restarts resume without re-firing.
 
+### Dispatch
+
+`octo-notify dispatch` runs a command per notification, driven by a TOML rules file (see
+[`examples/dispatch.example.toml`](examples/dispatch.example.toml)):
+
+```toml
+match = "first"   # or "all"
+
+[[rule]]
+reason = "mention"
+run = "notify-send {repo} {title}"
+
+[[rule]]
+subject_type = "Issue"
+run = "my-handler {url}"
+mark = "read"     # mark the thread read on a zero exit (optional)
+```
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify dispatch --config dispatch.toml --state state.json
+```
+
+Matchers (`reason`/`subject_type`/`repo`) are ANDed; omitted ones match anything. `run` gets
+`{repo} {thread_id} {title} {url} {reason} {type}` substituted (also exported as `OCTO_*` env
+vars). The command can be anything - a script, `notify-send`, `curl`, or a task runner.
+
 ## Design
 
 Three layers, each usable without the one above it:
