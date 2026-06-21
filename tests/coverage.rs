@@ -1,7 +1,7 @@
 //! Integration tests for the full endpoint surface and pagination (M2).
 
 use futures::StreamExt;
-use octo_notify::{Auth, Client};
+use octo_notify::{Auth, Client, Notification};
 use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -193,4 +193,44 @@ async fn pagination_stream_yields_all_items() {
         .map(|r| r.expect("item ok").id.as_str().to_owned())
         .collect();
     assert_eq!(ids, ["123456789", "987654321", "555000555"]);
+}
+
+#[tokio::test]
+async fn fetch_subject_returns_json() {
+    let server = MockServer::start().await;
+    let subject_url = format!("{}/repos/octocat/hello-world/pulls/77", server.uri());
+    let mut value: serde_json::Value = serde_json::from_str(THREAD).unwrap();
+    value["subject"]["url"] = serde_json::json!(subject_url);
+    let notification: Notification = serde_json::from_value(value).unwrap();
+
+    Mock::given(method("GET"))
+        .and(path("/repos/octocat/hello-world/pulls/77"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(
+            r#"{"number":77,"state":"open","draft":false}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
+    let subject = client_for(&server)
+        .fetch_subject(&notification)
+        .await
+        .expect("request ok")
+        .expect("subject json");
+    assert_eq!(subject["state"].as_str(), Some("open"));
+    assert_eq!(subject["number"].as_u64(), Some(77));
+}
+
+#[tokio::test]
+async fn fetch_subject_none_when_no_url() {
+    let server = MockServer::start().await;
+    let mut value: serde_json::Value = serde_json::from_str(THREAD).unwrap();
+    value["subject"]["url"] = serde_json::Value::Null;
+    let notification: Notification = serde_json::from_value(value).unwrap();
+
+    let result = client_for(&server)
+        .fetch_subject(&notification)
+        .await
+        .expect("request ok");
+    assert!(result.is_none(), "no subject url yields None");
 }
