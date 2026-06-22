@@ -17,8 +17,8 @@ use clap::Parser;
 use crate::{Auth, Client};
 use args::{Cli, Command};
 
-/// Parse arguments, build a [`Client`](crate::Client) from the environment, and run the
-/// requested command. This is the entry point the `octo-notify` binary calls.
+/// Parse arguments, build a [`Client`] from the environment, and run the requested command.
+/// This is the entry point the `octo-notify` binary calls.
 #[tokio::main]
 pub async fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
