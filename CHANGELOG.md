@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-22
+
+### Added
+
+- Repository and thread subscription in the library and CLI ([#46](https://github.com/joshrotenberg/octo-notify/pull/46))
+- List watched repositories (GET /user/subscriptions) ([#51](https://github.com/joshrotenberg/octo-notify/pull/51))
+- *(cli)* Mark-read command and repo/time/page filters on inbox ([#52](https://github.com/joshrotenberg/octo-notify/pull/52))
+- *(cli)* Collapse dispatch into watch --rules ([#55](https://github.com/joshrotenberg/octo-notify/pull/55)) [**breaking**]
+
+### Changed
+
+- *(cli)* Split the CLI into src/cli/ modules ([#56](https://github.com/joshrotenberg/octo-notify/pull/56))
+
+### Documentation
+
+- Expand dispatch example config and move to repo root ([#45](https://github.com/joshrotenberg/octo-notify/pull/45))
+- Refresh README status and version for the 0.3.0 release ([#60](https://github.com/joshrotenberg/octo-notify/pull/60))
+
+
+
 ## [0.2.0] - 2026-06-21
 
 ### Added
