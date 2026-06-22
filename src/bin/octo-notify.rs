@@ -4,6 +4,7 @@
 //! cargo install octo-notify --features cli
 //! GITHUB_TOKEN=$(gh auth token) octo-notify inbox --all
 //! GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.json
+//! GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world
 //! ```
 
 use std::path::PathBuf;
@@ -76,6 +77,66 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         state: Option<PathBuf>,
     },
+    /// Watch a repository (subscribe to notifications for all its activity).
+    Subscribe {
+        /// Repository as "owner/name".
+        repo: String,
+        /// Ignore the repository (suppress all notifications) instead of watching it.
+        #[arg(long)]
+        ignore: bool,
+    },
+    /// Stop watching or ignoring a repository (delete its subscription).
+    Unsubscribe {
+        /// Repository as "owner/name".
+        repo: String,
+    },
+    /// Show your subscription status for a repository.
+    Subscription {
+        /// Repository as "owner/name".
+        repo: String,
+    },
+    /// Operate on a single notification thread by id.
+    Thread {
+        #[command(subcommand)]
+        action: ThreadCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ThreadCommand {
+    /// Show the thread.
+    Show {
+        /// Thread id.
+        id: String,
+    },
+    /// Mark the thread as read.
+    Read {
+        /// Thread id.
+        id: String,
+    },
+    /// Mark the thread as done (remove it from the inbox).
+    Done {
+        /// Thread id.
+        id: String,
+    },
+    /// Subscribe to the thread (or ignore it with --ignore).
+    Subscribe {
+        /// Thread id.
+        id: String,
+        /// Ignore the thread (suppress its notifications) instead of subscribing.
+        #[arg(long)]
+        ignore: bool,
+    },
+    /// Delete the thread subscription (mute it until you participate again).
+    Unsubscribe {
+        /// Thread id.
+        id: String,
+    },
+    /// Show your subscription status for the thread.
+    Subscription {
+        /// Thread id.
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -114,6 +175,134 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Command::Subscribe { repo, ignore } => subscribe(&client, &repo, ignore).await,
+        Command::Unsubscribe { repo } => unsubscribe(&client, &repo).await,
+        Command::Subscription { repo } => subscription_status(&client, &repo).await,
+        Command::Thread { action } => thread_command(&client, action).await,
+    }
+}
+
+async fn thread_command(client: &Client, action: ThreadCommand) -> anyhow::Result<()> {
+    match action {
+        ThreadCommand::Show { id } => {
+            let n = client.thread(id.as_str()).get().await?;
+            let flag = if n.unread { "●" } else { "○" };
+            println!(
+                "{flag} [{}] {} - {} ({})",
+                n.reason, n.repository.full_name, n.subject.title, n.subject.kind,
+            );
+            Ok(())
+        }
+        ThreadCommand::Read { id } => {
+            client.thread(id.as_str()).mark_read().await?;
+            println!("thread {id}: read");
+            Ok(())
+        }
+        ThreadCommand::Done { id } => {
+            client.thread(id.as_str()).mark_done().await?;
+            println!("thread {id}: done");
+            Ok(())
+        }
+        ThreadCommand::Subscribe { id, ignore } => {
+            let sub = client.thread(id.as_str()).set_subscription(ignore).await?;
+            println!(
+                "thread {id}: {}",
+                thread_subscription_state(sub.subscribed, sub.ignored)
+            );
+            Ok(())
+        }
+        ThreadCommand::Unsubscribe { id } => {
+            client.thread(id.as_str()).delete_subscription().await?;
+            println!("thread {id}: unsubscribed");
+            Ok(())
+        }
+        ThreadCommand::Subscription { id } => match client.thread(id.as_str()).subscription().await
+        {
+            Ok(sub) => {
+                println!(
+                    "thread {id}: {}",
+                    thread_subscription_state(sub.subscribed, sub.ignored)
+                );
+                Ok(())
+            }
+            // 404 means no subscription record exists for this thread.
+            Err(octo_notify::Error::Api { status, .. }) if status.as_u16() == 404 => {
+                println!("thread {id}: not subscribed");
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        },
+    }
+}
+
+fn thread_subscription_state(subscribed: bool, ignored: bool) -> &'static str {
+    if ignored {
+        "ignored"
+    } else if subscribed {
+        "subscribed"
+    } else {
+        "not subscribed"
+    }
+}
+
+/// Split an `owner/name` repository argument, rejecting anything malformed.
+fn split_repo(repo: &str) -> anyhow::Result<(&str, &str)> {
+    match repo.split_once('/') {
+        Some((owner, name)) if !owner.is_empty() && !name.is_empty() && !name.contains('/') => {
+            Ok((owner, name))
+        }
+        _ => anyhow::bail!("expected repository as \"owner/name\", got {repo:?}"),
+    }
+}
+
+async fn subscribe(client: &Client, repo: &str, ignore: bool) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    let handler = client.repo(owner, name);
+    let sub = if ignore {
+        handler.ignore().await?
+    } else {
+        handler.subscribe().await?
+    };
+    println!(
+        "{repo}: {}",
+        subscription_state(sub.subscribed, sub.ignored)
+    );
+    Ok(())
+}
+
+async fn unsubscribe(client: &Client, repo: &str) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    client.repo(owner, name).delete_subscription().await?;
+    println!("{repo}: unsubscribed");
+    Ok(())
+}
+
+async fn subscription_status(client: &Client, repo: &str) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    match client.repo(owner, name).subscription().await {
+        Ok(sub) => {
+            println!(
+                "{repo}: {}",
+                subscription_state(sub.subscribed, sub.ignored)
+            );
+            Ok(())
+        }
+        // 404 is the API's way of saying "no subscription exists" for this repo.
+        Err(octo_notify::Error::Api { status, .. }) if status.as_u16() == 404 => {
+            println!("{repo}: not subscribed");
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn subscription_state(subscribed: bool, ignored: bool) -> &'static str {
+    if ignored {
+        "ignored"
+    } else if subscribed {
+        "watching"
+    } else {
+        "not subscribed"
     }
 }
 
@@ -418,5 +607,29 @@ mod tests {
             render("{reason} {repo} {type} #{thread_id}", &n),
             "mention octocat/hello Issue #1"
         );
+    }
+
+    #[test]
+    fn split_repo_accepts_owner_name_and_rejects_the_rest() {
+        assert_eq!(split_repo("octocat/hello").unwrap(), ("octocat", "hello"));
+        for bad in ["octocat", "octocat/", "/hello", "a/b/c", ""] {
+            assert!(split_repo(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn subscription_state_labels() {
+        assert_eq!(subscription_state(true, false), "watching");
+        assert_eq!(subscription_state(false, true), "ignored");
+        assert_eq!(subscription_state(true, true), "ignored");
+        assert_eq!(subscription_state(false, false), "not subscribed");
+    }
+
+    #[test]
+    fn thread_subscription_state_labels() {
+        assert_eq!(thread_subscription_state(true, false), "subscribed");
+        assert_eq!(thread_subscription_state(false, true), "ignored");
+        assert_eq!(thread_subscription_state(true, true), "ignored");
+        assert_eq!(thread_subscription_state(false, false), "not subscribed");
     }
 }

@@ -219,8 +219,8 @@ pub use endpoints::{
 };
 pub use error::{Error, RateLimitKind, Result};
 pub use models::{
-    MinimalRepository, Notification, Reason, SimpleUser, Subject, SubjectType, ThreadId,
-    ThreadSubscription,
+    MinimalRepository, Notification, Reason, RepositorySubscription, SimpleUser, Subject,
+    SubjectType, ThreadId, ThreadSubscription,
 };
 pub use pagination::{Listing, NotModified, Page};
 pub use rate_limit::RateLimit;

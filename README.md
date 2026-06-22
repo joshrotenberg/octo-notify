@@ -122,6 +122,40 @@ Matchers (`reason`/`subject_type`/`repo`) are ANDed; omitted ones match anything
 `{repo} {thread_id} {title} {url} {reason} {type}` substituted (also exported as `OCTO_*` env
 vars). The command can be anything - a script, `notify-send`, `curl`, or a task runner.
 
+### Subscriptions
+
+Watch or ignore a repository (the GitHub "watching" relationship), or check its status:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world
+GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world --ignore
+GITHUB_TOKEN=$(gh auth token) octo-notify unsubscribe octocat/hello-world
+GITHUB_TOKEN=$(gh auth token) octo-notify subscription octocat/hello-world
+```
+
+`subscribe` watches all of a repository's activity; `--ignore` suppresses its notifications
+instead; `unsubscribe` removes the subscription; `subscription` prints `watching`, `ignored`,
+or `not subscribed`. The same operations are on the library's `RepoHandler`
+(`subscribe()`, `ignore()`, `set_subscription()`, `subscription()`, `delete_subscription()`).
+
+### Threads
+
+Act on a single notification thread by id (the `thread_id` substituted into dispatch rules):
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify thread show 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread read 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread done 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread subscribe 14829301 --ignore
+GITHUB_TOKEN=$(gh auth token) octo-notify thread unsubscribe 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread subscription 14829301
+```
+
+`read` and `done` mark the thread; `subscribe` follows it (`--ignore` mutes it instead);
+`unsubscribe` deletes the subscription, muting the thread until you participate again. These
+map to the library's `ThreadHandler` (`get()`, `mark_read()`, `mark_done()`,
+`set_subscription()`, `delete_subscription()`, `subscription()`).
+
 ## Design
 
 Three layers, each usable without the one above it:

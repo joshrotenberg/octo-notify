@@ -9,6 +9,7 @@ const PAGE1: &str = include_str!("fixtures/notifications_page1.json");
 const PAGE2: &str = include_str!("fixtures/notifications_page2.json");
 const THREAD: &str = include_str!("fixtures/thread.json");
 const SUBSCRIPTION: &str = include_str!("fixtures/subscription.json");
+const REPO_SUBSCRIPTION: &str = include_str!("fixtures/repo_subscription.json");
 
 fn client_for(server: &MockServer) -> Client {
     Client::builder()
@@ -116,6 +117,78 @@ async fn subscription_get_set_delete() {
         .delete_subscription()
         .await
         .expect("delete subscription");
+}
+
+#[tokio::test]
+async fn repo_subscription_get_set_delete() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octocat/hello-world/subscription"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(REPO_SUBSCRIPTION, "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/repos/octocat/hello-world/subscription"))
+        .and(body_json(
+            serde_json::json!({ "subscribed": true, "ignored": false }),
+        ))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(REPO_SUBSCRIPTION, "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path("/repos/octocat/hello-world/subscription"))
+        .respond_with(ResponseTemplate::new(204))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server);
+    let sub = client
+        .repo("octocat", "hello-world")
+        .subscription()
+        .await
+        .expect("get repo subscription");
+    assert!(sub.subscribed);
+    assert!(!sub.ignored);
+
+    let watched = client
+        .repo("octocat", "hello-world")
+        .subscribe()
+        .await
+        .expect("subscribe to repo");
+    assert!(watched.subscribed);
+
+    client
+        .repo("octocat", "hello-world")
+        .delete_subscription()
+        .await
+        .expect("delete repo subscription");
+}
+
+#[tokio::test]
+async fn repo_subscription_get_404_when_not_watched() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/octocat/hello-world/subscription"))
+        .respond_with(ResponseTemplate::new(404).set_body_raw(
+            r#"{"message":"Not Found","documentation_url":"https://docs.github.com/"}"#,
+            "application/json",
+        ))
+        .mount(&server)
+        .await;
+
+    let err = client_for(&server)
+        .repo("octocat", "hello-world")
+        .subscription()
+        .await
+        .expect_err("404 surfaces as an error");
+    match err {
+        octo_notify::Error::Api { status, .. } => assert_eq!(status.as_u16(), 404),
+        other => panic!("expected Error::Api 404, got {other:?}"),
+    }
 }
 
 #[tokio::test]
