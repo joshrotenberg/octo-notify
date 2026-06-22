@@ -1,5 +1,6 @@
 //! Integration tests for the full endpoint surface and pagination (M2).
 
+use chrono::{DateTime, Utc};
 use futures::StreamExt;
 use octo_notify::{Auth, Client, Notification};
 use wiremock::matchers::{body_json, method, path, query_param, query_param_is_missing};
@@ -248,6 +249,58 @@ async fn list_subscriptions_all_follows_link() {
     assert_eq!(all.len(), 3);
     assert_eq!(all[2].full_name, "octocat/octo-secret");
     assert!(all[2].private);
+}
+
+#[tokio::test]
+async fn repo_mark_all_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/repos/octocat/hello-world/notifications"))
+        .respond_with(ResponseTemplate::new(202))
+        .mount(&server)
+        .await;
+
+    client_for(&server)
+        .repo("octocat", "hello-world")
+        .notifications()
+        .mark_all_read()
+        .send()
+        .await
+        .expect("repo mark all read");
+}
+
+#[tokio::test]
+async fn list_sends_filter_query_params() {
+    let server = MockServer::start().await;
+    let since: DateTime<Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+    let before: DateTime<Utc> = "2026-02-01T00:00:00Z".parse().unwrap();
+    Mock::given(method("GET"))
+        .and(path("/notifications"))
+        .and(query_param("all", "true"))
+        .and(query_param("participating", "true"))
+        .and(query_param("since", since.to_rfc3339()))
+        .and(query_param("before", before.to_rfc3339()))
+        .and(query_param("per_page", "10"))
+        .and(query_param("page", "2"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(PAGE2, "application/json"))
+        .mount(&server)
+        .await;
+
+    let page = client_for(&server)
+        .notifications()
+        .list()
+        .include_read(true)
+        .participating(true)
+        .per_page(10)
+        .since(since)
+        .before(before)
+        .page(2)
+        .send()
+        .await
+        .expect("filtered list")
+        .into_page()
+        .expect("modified");
+    assert_eq!(page.items.len(), 1);
 }
 
 #[tokio::test]
