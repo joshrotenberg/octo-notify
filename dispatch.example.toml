@@ -1,0 +1,157 @@
+# octo-notify dispatch rules
+# ===========================================================================
+# Run with:
+#
+#   GITHUB_TOKEN=$(gh auth token) \
+#     octo-notify dispatch --config dispatch.example.toml --state ~/.cache/octo-notify.json
+#
+# `dispatch` polls your notifications and runs a command for each one, according
+# to the [[rule]]s below.
+#
+# Match mode (top-level `match`):
+#   "first"  only the first matching rule fires for a notification (default)
+#   "all"    every matching rule fires, top to bottom
+#
+# Each [[rule]] has:
+#   reason        optional matcher on the notification reason
+#   subject_type  optional matcher on the subject type
+#   repo          optional matcher on "owner/name"
+#   run           command to run (executed via the shell: `sh -c` / `cmd /C`)
+#   mark          optional "read" or "done", applied only on a zero exit
+#
+# Matchers are ANDed; an omitted matcher matches anything. A [[rule]] with no
+# matchers matches every notification (useful as a catch-all under match = "first").
+#
+# In `run`, these tokens are substituted, and the same values are exported as
+# environment variables. Prefer the env vars for anything that ends up in a
+# shell argument, so titles with quotes or `$` cannot break the command:
+#
+#   token          env var            example
+#   {repo}         $OCTO_REPO         joshrotenberg/octo-notify
+#   {thread_id}    $OCTO_THREAD_ID    14829301
+#   {title}        $OCTO_TITLE        Fix the flaky test
+#   {url}          $OCTO_URL          https://api.github.com/.../issues/42
+#   {reason}       $OCTO_REASON       mention
+#   {type}         $OCTO_TYPE         Issue
+#
+# Common `reason` values:       assign, author, ci_activity, comment, invitation,
+#   manual, mention, review_requested, security_alert, state_change, subscribed,
+#   team_mention. (Forward-compatible: GitHub may add more.)
+# Common `subject_type` values: Issue, PullRequest, Commit, Release, Discussion,
+#   CheckSuite, RepositoryVulnerabilityAlert.
+#
+# Most rules below are commented out. Uncomment the ones you want, or copy this
+# file and edit. The one active rule is a harmless catch-all that just prints.
+# ===========================================================================
+
+match = "first"
+
+# --- Active by default: print a one-line summary of every notification. -----
+[[rule]]
+run = "echo \"[$OCTO_REASON/$OCTO_TYPE] $OCTO_REPO :: $OCTO_TITLE\""
+
+
+# ======================== Examples (commented out) =========================
+#
+# To try any of these: move it above the catch-all (match = "first" fires the
+# first match), or delete the catch-all, or switch to match = "all".
+
+
+# --- Desktop notifications -------------------------------------------------
+
+# Linux / libnotify, on @mentions only:
+# [[rule]]
+# reason = "mention"
+# run = "notify-send \"GitHub: $OCTO_REPO\" \"$OCTO_TITLE\""
+
+# macOS, on @mentions only:
+# [[rule]]
+# reason = "mention"
+# run = "osascript -e \"display notification \\\"$OCTO_TITLE\\\" with title \\\"$OCTO_REPO\\\"\""
+
+# Cross-platform push via ntfy.sh:
+# [[rule]]
+# run = "curl -s -H \"Title: $OCTO_REPO\" -d \"$OCTO_TITLE\" https://ntfy.sh/my-octo-topic"
+
+
+# --- Logging and archiving -------------------------------------------------
+
+# Append every notification to a log file:
+# [[rule]]
+# run = "echo \"$(date -u +%FT%TZ) [$OCTO_REASON] $OCTO_REPO $OCTO_URL $OCTO_TITLE\" >> ~/octo.log"
+
+# Append new releases to their own log:
+# [[rule]]
+# subject_type = "Release"
+# run = "echo \"$(date -u +%F) $OCTO_REPO $OCTO_TITLE\" >> ~/releases.log"
+
+
+# --- Routing by reason -----------------------------------------------------
+
+# Review requests: open the PR in a browser (macOS `open`, Linux `xdg-open`):
+# [[rule]]
+# reason = "review_requested"
+# run = "open \"https://github.com/$OCTO_REPO\""
+
+# Things assigned to you:
+# [[rule]]
+# reason = "assign"
+# run = "notify-send \"Assigned in $OCTO_REPO\" \"$OCTO_TITLE\""
+
+# CI activity: ping, but keep the inbox clean by marking it done afterward:
+# [[rule]]
+# reason = "ci_activity"
+# run = "notify-send \"CI: $OCTO_REPO\" \"$OCTO_TITLE\""
+# mark = "done"
+
+# Security alerts: post to a Slack incoming webhook (set $SLACK_WEBHOOK_URL):
+# [[rule]]
+# reason = "security_alert"
+# run = "curl -s -X POST -H 'Content-type: application/json' -d \"{\\\"text\\\": \\\"Security: $OCTO_REPO - $OCTO_TITLE\\\"}\" \"$SLACK_WEBHOOK_URL\""
+
+
+# --- Routing by subject type ----------------------------------------------
+
+# New issues: hand off to a script, then mark read so it fires once:
+# [[rule]]
+# subject_type = "Issue"
+# run = "my-issue-handler \"$OCTO_URL\""
+# mark = "read"
+
+# Pull requests: fetch the PR JSON with gh and print state (needs gh + jq):
+# [[rule]]
+# subject_type = "PullRequest"
+# run = "gh api \"$OCTO_URL\" | jq -r '\"\\(.state) \\(.title)\"'"
+
+
+# --- Routing by repository -------------------------------------------------
+
+# Only one repo, everything else ignored (under match = "first"):
+# [[rule]]
+# repo = "joshrotenberg/octo-notify"
+# run = "echo \"octo-notify: $OCTO_TITLE\""
+
+# A specific repo's issues only (matchers are ANDed):
+# [[rule]]
+# repo = "joshrotenberg/octo-notify"
+# subject_type = "Issue"
+# run = "notify-send \"octo-notify issue\" \"$OCTO_TITLE\""
+
+
+# --- Task runners ----------------------------------------------------------
+
+# Triage newly assigned issues with a task runner, then mark read:
+# [[rule]]
+# reason = "assign"
+# subject_type = "Issue"
+# run = "roba run --alias issue-triage \"$OCTO_URL\""
+# mark = "read"
+
+
+# --- Auto-clearing noise (best with match = "all") -------------------------
+
+# Silently mark subscribed-thread updates done so they leave the inbox:
+# [[rule]]
+# reason = "subscribed"
+# run = "true"
+# mark = "done"
