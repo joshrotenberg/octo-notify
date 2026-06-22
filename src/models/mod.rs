@@ -14,4 +14,4 @@ pub use notification::{Notification, ThreadId};
 pub use reason::Reason;
 pub use repository::{MinimalRepository, SimpleUser};
 pub use subject::{Subject, SubjectType};
-pub use subscription::ThreadSubscription;
+pub use subscription::{RepositorySubscription, ThreadSubscription};
