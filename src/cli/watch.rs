@@ -1,8 +1,10 @@
 //! The `watch` command: stream notifications, and with `--rules` run a command per event.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use anstyle::{AnsiColor, Style};
 use futures::StreamExt;
 use tokio_util::sync::CancellationToken;
 
@@ -74,18 +76,23 @@ pub(crate) async fn run(client: Client, args: WatchArgs) -> anyhow::Result<()> {
         }
         // Without rules, print each event.
         None => {
+            let color = std::io::stdout().is_terminal() && !no_color();
+            let err_color = std::io::stderr().is_terminal() && !no_color();
             eprintln!("watching (interval >= {interval}s); Ctrl-C to stop");
             while let Some(event) = events.next().await {
                 match event {
-                    Ok(Event::New(n)) => println!(
-                        "NEW      [{}] {} - {}",
-                        n.reason, n.repository.full_name, n.subject.title
+                    Ok(Event::New(n)) => println!("{}", format_event(EventKind::New, &n, color)),
+                    Ok(Event::Updated(n)) => {
+                        println!("{}", format_event(EventKind::Updated, &n, color))
+                    }
+                    Err(e) => eprintln!(
+                        "{}",
+                        paint(
+                            AnsiColor::Red.on_default(),
+                            &format!("error: {e}"),
+                            err_color
+                        )
                     ),
-                    Ok(Event::Updated(n)) => println!(
-                        "UPDATED  [{}] {} - {}",
-                        n.reason, n.repository.full_name, n.subject.title
-                    ),
-                    Err(e) => eprintln!("error: {e}"),
                 }
             }
         }
@@ -205,6 +212,47 @@ async fn run_command(cmd: &str, n: &Notification) -> std::io::Result<std::proces
     command.status().await
 }
 
+#[derive(Clone, Copy)]
+enum EventKind {
+    New,
+    Updated,
+}
+
+/// Honor the `NO_COLOR` convention (https://no-color.org): any non-empty value disables color.
+fn no_color() -> bool {
+    std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty())
+}
+
+/// Wrap `text` in `style`'s ANSI codes when `color` is set, otherwise return it as-is.
+fn paint(style: Style, text: &str, color: bool) -> String {
+    if color {
+        format!("{}{text}{}", style.render(), style.render_reset())
+    } else {
+        text.to_string()
+    }
+}
+
+/// Render one poller event as a single line, colorized when `color` is set.
+fn format_event(kind: EventKind, n: &Notification, color: bool) -> String {
+    let (glyph, label, label_style) = match kind {
+        EventKind::New => ('●', "NEW", AnsiColor::Green.on_default().bold()),
+        EventKind::Updated => ('↻', "UPD", AnsiColor::Yellow.on_default().bold()),
+    };
+    let head = paint(label_style, &format!("{glyph} {label}"), color);
+    let reason = paint(
+        AnsiColor::Cyan.on_default(),
+        &format!("{:<13}", n.reason.as_str()),
+        color,
+    );
+    let repo = paint(Style::new().bold(), &n.repository.full_name, color);
+    let kind_tag = paint(
+        Style::new().dimmed(),
+        &format!("({})", n.subject.kind),
+        color,
+    );
+    format!("{head} {reason} {repo}  {}  {kind_tag}", n.subject.title)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -252,5 +300,30 @@ mod tests {
             render("{reason} {repo} {type} #{thread_id}", &n),
             "mention octocat/hello Issue #1"
         );
+    }
+
+    #[test]
+    fn format_event_plain_has_fields_and_no_ansi() {
+        let line = format_event(EventKind::New, &sample(), false);
+        assert!(line.contains("NEW"));
+        assert!(line.contains("mention"));
+        assert!(line.contains("octocat/hello"));
+        assert!(line.contains("Hello"));
+        assert!(line.contains("(Issue)"));
+        assert!(
+            !line.contains('\u{1b}'),
+            "plain output must not contain ANSI escapes"
+        );
+    }
+
+    #[test]
+    fn format_event_colored_emits_ansi() {
+        let line = format_event(EventKind::Updated, &sample(), true);
+        assert!(
+            line.contains('\u{1b}'),
+            "colored output should contain ANSI escapes"
+        );
+        assert!(line.contains("UPD"));
+        assert!(line.contains("Hello"));
     }
 }

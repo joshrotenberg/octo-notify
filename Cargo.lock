@@ -949,6 +949,7 @@ dependencies = [
 name = "octo-notify"
 version = "0.3.0"
 dependencies = [
+ "anstyle",
  "anyhow",
  "async-stream",
  "async-trait",
