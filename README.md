@@ -117,10 +117,11 @@ GITHUB_TOKEN=$(gh auth token) octo-notify mark-read --repo octocat/hello-world
 A large inbox is marked read asynchronously (the API returns `202 Accepted`), so a `mark-read`
 may take a moment to be reflected by the next `inbox`.
 
-### Dispatch
+### Rules (run a command per event)
 
-`octo-notify dispatch` runs a command per notification, driven by a TOML rules file (see
-[`dispatch.example.toml`](dispatch.example.toml) for a fully commented reference):
+`watch` prints events by default. Pass `--rules <file>` to instead run a command per
+notification, driven by a TOML rules file (see [`dispatch.example.toml`](dispatch.example.toml)
+for a fully commented reference):
 
 ```toml
 match = "first"   # or "all"
@@ -136,7 +137,7 @@ mark = "read"     # mark the thread read on a zero exit (optional)
 ```
 
 ```sh
-GITHUB_TOKEN=$(gh auth token) octo-notify dispatch --config dispatch.toml --state state.json
+GITHUB_TOKEN=$(gh auth token) octo-notify watch --rules dispatch.toml --state state.json
 ```
 
 Matchers (`reason`/`subject_type`/`repo`) are ANDed; omitted ones match anything. `run` gets

@@ -51,7 +51,7 @@ enum Command {
         #[arg(long)]
         page: Option<u32>,
     },
-    /// Watch notifications as a live stream.
+    /// Watch notifications as a live stream, optionally running a rules file per event.
     Watch {
         /// Minimum seconds between polls (the server may request longer).
         #[arg(long, default_value_t = 60)]
@@ -68,27 +68,9 @@ enum Command {
         /// Persist dedupe state to this file so restarts resume without re-firing.
         #[arg(long, value_name = "PATH")]
         state: Option<PathBuf>,
-    },
-    /// Watch notifications and run a command per event, per a TOML rules file.
-    Dispatch {
-        /// Path to the TOML rules file.
+        /// Run a command per event from this TOML rules file, instead of printing events.
         #[arg(long, value_name = "PATH")]
-        config: PathBuf,
-        /// Minimum seconds between polls (the server may request longer).
-        #[arg(long, default_value_t = 60)]
-        interval: u64,
-        /// Only notifications you're directly participating in.
-        #[arg(long)]
-        participating: bool,
-        /// Include notifications already marked as read.
-        #[arg(long)]
-        all: bool,
-        /// Process the current inbox once on start, instead of only new activity.
-        #[arg(long)]
-        show_existing: bool,
-        /// Persist dedupe state so restarts resume without re-firing.
-        #[arg(long, value_name = "PATH")]
-        state: Option<PathBuf>,
+        rules: Option<PathBuf>,
     },
     /// Watch a repository (subscribe to notifications for all its activity).
     Subscribe {
@@ -194,23 +176,18 @@ async fn main() -> anyhow::Result<()> {
             all,
             show_existing,
             state,
-        } => watch(client, interval, participating, all, show_existing, state).await,
-        Command::Dispatch {
-            config,
-            interval,
-            participating,
-            all,
-            show_existing,
-            state,
+            rules,
         } => {
-            dispatch(
+            watch(
                 client,
-                config,
-                interval,
-                participating,
-                all,
-                show_existing,
-                state,
+                WatchArgs {
+                    interval,
+                    participating,
+                    all,
+                    show_existing,
+                    state,
+                    rules,
+                },
             )
             .await
         }
@@ -466,14 +443,25 @@ async fn inbox(client: &Client, args: InboxArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn watch(
-    client: Client,
+struct WatchArgs {
     interval: u64,
     participating: bool,
     all: bool,
     show_existing: bool,
     state: Option<PathBuf>,
-) -> anyhow::Result<()> {
+    rules: Option<PathBuf>,
+}
+
+async fn watch(client: Client, args: WatchArgs) -> anyhow::Result<()> {
+    // Load and parse the rules file up front so a bad config fails before we start polling.
+    let rules = match &args.rules {
+        Some(path) => {
+            let text = std::fs::read_to_string(path)?;
+            Some(toml::from_str::<DispatchConfig>(&text)?)
+        }
+        None => None,
+    };
+
     let cancel = CancellationToken::new();
     let shutdown = cancel.clone();
     tokio::spawn(async move {
@@ -484,12 +472,12 @@ async fn watch(
 
     let builder = client
         .poller()
-        .min_interval(Duration::from_secs(interval))
-        .participating_only(participating)
-        .include_read(all)
-        .emit_existing_on_start(show_existing)
+        .min_interval(Duration::from_secs(args.interval))
+        .participating_only(args.participating)
+        .include_read(args.all)
+        .emit_existing_on_start(args.show_existing)
         .cancellation(cancel);
-    let builder = match state {
+    let builder = match args.state {
         Some(path) => {
             eprintln!("persisting state to {}", path.display());
             builder.store(JsonFileStore::open(path)?)
@@ -498,19 +486,42 @@ async fn watch(
     };
     let poller = builder.build();
 
-    eprintln!("watching (interval >= {interval}s); Ctrl-C to stop");
+    let interval = args.interval;
     let mut events = Box::pin(poller.stream());
-    while let Some(event) = events.next().await {
-        match event {
-            Ok(Event::New(n)) => println!(
-                "NEW      [{}] {} - {}",
-                n.reason, n.repository.full_name, n.subject.title
-            ),
-            Ok(Event::Updated(n)) => println!(
-                "UPDATED  [{}] {} - {}",
-                n.reason, n.repository.full_name, n.subject.title
-            ),
-            Err(e) => eprintln!("error: {e}"),
+    match rules {
+        // With a rules file, run a command per event (the former `dispatch`); rules own the output.
+        Some(cfg) => {
+            eprintln!(
+                "watching with {} rule(s) (interval >= {interval}s); Ctrl-C to stop",
+                cfg.rule.len()
+            );
+            while let Some(event) = events.next().await {
+                let n = match event {
+                    Ok(e) => e.into_notification(),
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        continue;
+                    }
+                };
+                run_rules(&client, &cfg, &n).await;
+            }
+        }
+        // Without rules, print each event.
+        None => {
+            eprintln!("watching (interval >= {interval}s); Ctrl-C to stop");
+            while let Some(event) = events.next().await {
+                match event {
+                    Ok(Event::New(n)) => println!(
+                        "NEW      [{}] {} - {}",
+                        n.reason, n.repository.full_name, n.subject.title
+                    ),
+                    Ok(Event::Updated(n)) => println!(
+                        "UPDATED  [{}] {} - {}",
+                        n.reason, n.repository.full_name, n.subject.title
+                    ),
+                    Err(e) => eprintln!("error: {e}"),
+                }
+            }
         }
     }
     Ok(())
@@ -600,77 +611,32 @@ async fn run_command(cmd: &str, n: &Notification) -> std::io::Result<std::proces
     command.status().await
 }
 
-async fn dispatch(
-    client: Client,
-    config: PathBuf,
-    interval: u64,
-    participating: bool,
-    all: bool,
-    show_existing: bool,
-    state: Option<PathBuf>,
-) -> anyhow::Result<()> {
-    let text = std::fs::read_to_string(&config)?;
-    let cfg: DispatchConfig = toml::from_str(&text)?;
-
-    let cancel = CancellationToken::new();
-    let shutdown = cancel.clone();
-    tokio::spawn(async move {
-        let _ = tokio::signal::ctrl_c().await;
-        eprintln!("\nshutting down at next tick...");
-        shutdown.cancel();
-    });
-
-    let builder = client
-        .poller()
-        .min_interval(Duration::from_secs(interval))
-        .participating_only(participating)
-        .include_read(all)
-        .emit_existing_on_start(show_existing)
-        .cancellation(cancel);
-    let builder = match state {
-        Some(path) => builder.store(JsonFileStore::open(path)?),
-        None => builder,
+/// Run the matching rules for one notification: execute each `run` command and, on a zero exit,
+/// apply that rule's optional `mark`.
+async fn run_rules(client: &Client, cfg: &DispatchConfig, n: &Notification) {
+    let mut matching = cfg.rule.iter().filter(|r| rule_matches(r, n));
+    let selected: Vec<&Rule> = match cfg.match_mode {
+        MatchMode::First => matching.next().into_iter().collect(),
+        MatchMode::All => matching.collect(),
     };
-    let poller = builder.build();
-
-    eprintln!(
-        "dispatching ({} rule(s); interval >= {interval}s); Ctrl-C to stop",
-        cfg.rule.len()
-    );
-    let mut events = Box::pin(poller.stream());
-    while let Some(event) = events.next().await {
-        let n = match event {
-            Ok(e) => e.into_notification(),
-            Err(e) => {
-                eprintln!("error: {e}");
-                continue;
-            }
-        };
-        let mut matching = cfg.rule.iter().filter(|r| rule_matches(r, &n));
-        let selected: Vec<&Rule> = match cfg.match_mode {
-            MatchMode::First => matching.next().into_iter().collect(),
-            MatchMode::All => matching.collect(),
-        };
-        for rule in selected {
-            let rendered = render(&rule.run, &n);
-            match run_command(&rendered, &n).await {
-                Ok(status) if status.success() => {
-                    if let Some(mark) = rule.mark {
-                        let result = match mark {
-                            MarkAction::Read => client.thread(n.id.clone()).mark_read().await,
-                            MarkAction::Done => client.thread(n.id.clone()).mark_done().await,
-                        };
-                        if let Err(e) = result {
-                            eprintln!("mark failed for {}: {e}", n.id);
-                        }
+    for rule in selected {
+        let rendered = render(&rule.run, n);
+        match run_command(&rendered, n).await {
+            Ok(status) if status.success() => {
+                if let Some(mark) = rule.mark {
+                    let result = match mark {
+                        MarkAction::Read => client.thread(n.id.clone()).mark_read().await,
+                        MarkAction::Done => client.thread(n.id.clone()).mark_done().await,
+                    };
+                    if let Err(e) = result {
+                        eprintln!("mark failed for {}: {e}", n.id);
                     }
                 }
-                Ok(status) => eprintln!("command exited ({status}) for {}", n.id),
-                Err(e) => eprintln!("command failed for {}: {e}", n.id),
             }
+            Ok(status) => eprintln!("command exited ({status}) for {}", n.id),
+            Err(e) => eprintln!("command failed for {}: {e}", n.id),
         }
     }
-    Ok(())
 }
 
 #[cfg(test)]
