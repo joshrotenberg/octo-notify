@@ -99,7 +99,7 @@ GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.jso
 ### Dispatch
 
 `octo-notify dispatch` runs a command per notification, driven by a TOML rules file (see
-[`examples/dispatch.example.toml`](examples/dispatch.example.toml)):
+[`dispatch.example.toml`](dispatch.example.toml) for a fully commented reference):
 
 ```toml
 match = "first"   # or "all"
