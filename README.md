@@ -138,6 +138,24 @@ instead; `unsubscribe` removes the subscription; `subscription` prints `watching
 or `not subscribed`. The same operations are on the library's `RepoHandler`
 (`subscribe()`, `ignore()`, `set_subscription()`, `subscription()`, `delete_subscription()`).
 
+### Threads
+
+Act on a single notification thread by id (the `thread_id` substituted into dispatch rules):
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify thread show 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread read 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread done 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread subscribe 14829301 --ignore
+GITHUB_TOKEN=$(gh auth token) octo-notify thread unsubscribe 14829301
+GITHUB_TOKEN=$(gh auth token) octo-notify thread subscription 14829301
+```
+
+`read` and `done` mark the thread; `subscribe` follows it (`--ignore` mutes it instead);
+`unsubscribe` deletes the subscription, muting the thread until you participate again. These
+map to the library's `ThreadHandler` (`get()`, `mark_read()`, `mark_done()`,
+`set_subscription()`, `delete_subscription()`, `subscription()`).
+
 ## Design
 
 Three layers, each usable without the one above it:

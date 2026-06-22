@@ -95,6 +95,48 @@ enum Command {
         /// Repository as "owner/name".
         repo: String,
     },
+    /// Operate on a single notification thread by id.
+    Thread {
+        #[command(subcommand)]
+        action: ThreadCommand,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ThreadCommand {
+    /// Show the thread.
+    Show {
+        /// Thread id.
+        id: String,
+    },
+    /// Mark the thread as read.
+    Read {
+        /// Thread id.
+        id: String,
+    },
+    /// Mark the thread as done (remove it from the inbox).
+    Done {
+        /// Thread id.
+        id: String,
+    },
+    /// Subscribe to the thread (or ignore it with --ignore).
+    Subscribe {
+        /// Thread id.
+        id: String,
+        /// Ignore the thread (suppress its notifications) instead of subscribing.
+        #[arg(long)]
+        ignore: bool,
+    },
+    /// Delete the thread subscription (mute it until you participate again).
+    Unsubscribe {
+        /// Thread id.
+        id: String,
+    },
+    /// Show your subscription status for the thread.
+    Subscription {
+        /// Thread id.
+        id: String,
+    },
 }
 
 #[tokio::main]
@@ -136,6 +178,70 @@ async fn main() -> anyhow::Result<()> {
         Command::Subscribe { repo, ignore } => subscribe(&client, &repo, ignore).await,
         Command::Unsubscribe { repo } => unsubscribe(&client, &repo).await,
         Command::Subscription { repo } => subscription_status(&client, &repo).await,
+        Command::Thread { action } => thread_command(&client, action).await,
+    }
+}
+
+async fn thread_command(client: &Client, action: ThreadCommand) -> anyhow::Result<()> {
+    match action {
+        ThreadCommand::Show { id } => {
+            let n = client.thread(id.as_str()).get().await?;
+            let flag = if n.unread { "●" } else { "○" };
+            println!(
+                "{flag} [{}] {} - {} ({})",
+                n.reason, n.repository.full_name, n.subject.title, n.subject.kind,
+            );
+            Ok(())
+        }
+        ThreadCommand::Read { id } => {
+            client.thread(id.as_str()).mark_read().await?;
+            println!("thread {id}: read");
+            Ok(())
+        }
+        ThreadCommand::Done { id } => {
+            client.thread(id.as_str()).mark_done().await?;
+            println!("thread {id}: done");
+            Ok(())
+        }
+        ThreadCommand::Subscribe { id, ignore } => {
+            let sub = client.thread(id.as_str()).set_subscription(ignore).await?;
+            println!(
+                "thread {id}: {}",
+                thread_subscription_state(sub.subscribed, sub.ignored)
+            );
+            Ok(())
+        }
+        ThreadCommand::Unsubscribe { id } => {
+            client.thread(id.as_str()).delete_subscription().await?;
+            println!("thread {id}: unsubscribed");
+            Ok(())
+        }
+        ThreadCommand::Subscription { id } => match client.thread(id.as_str()).subscription().await
+        {
+            Ok(sub) => {
+                println!(
+                    "thread {id}: {}",
+                    thread_subscription_state(sub.subscribed, sub.ignored)
+                );
+                Ok(())
+            }
+            // 404 means no subscription record exists for this thread.
+            Err(octo_notify::Error::Api { status, .. }) if status.as_u16() == 404 => {
+                println!("thread {id}: not subscribed");
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        },
+    }
+}
+
+fn thread_subscription_state(subscribed: bool, ignored: bool) -> &'static str {
+    if ignored {
+        "ignored"
+    } else if subscribed {
+        "subscribed"
+    } else {
+        "not subscribed"
     }
 }
 
@@ -517,5 +623,13 @@ mod tests {
         assert_eq!(subscription_state(false, true), "ignored");
         assert_eq!(subscription_state(true, true), "ignored");
         assert_eq!(subscription_state(false, false), "not subscribed");
+    }
+
+    #[test]
+    fn thread_subscription_state_labels() {
+        assert_eq!(thread_subscription_state(true, false), "subscribed");
+        assert_eq!(thread_subscription_state(false, true), "ignored");
+        assert_eq!(thread_subscription_state(true, true), "ignored");
+        assert_eq!(thread_subscription_state(false, false), "not subscribed");
     }
 }
