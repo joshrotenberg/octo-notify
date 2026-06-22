@@ -200,6 +200,8 @@ macro_rules! twarn {
 #[cfg(feature = "stream")]
 pub mod app;
 pub mod auth;
+#[cfg(feature = "cli")]
+pub mod cli;
 mod client;
 pub mod endpoints;
 pub mod error;
