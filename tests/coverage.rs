@@ -10,6 +10,8 @@ const PAGE2: &str = include_str!("fixtures/notifications_page2.json");
 const THREAD: &str = include_str!("fixtures/thread.json");
 const SUBSCRIPTION: &str = include_str!("fixtures/subscription.json");
 const REPO_SUBSCRIPTION: &str = include_str!("fixtures/repo_subscription.json");
+const SUBSCRIPTIONS_PAGE1: &str = include_str!("fixtures/subscriptions_page1.json");
+const SUBSCRIPTIONS_PAGE2: &str = include_str!("fixtures/subscriptions_page2.json");
 
 fn client_for(server: &MockServer) -> Client {
     Client::builder()
@@ -189,6 +191,63 @@ async fn repo_subscription_get_404_when_not_watched() {
         octo_notify::Error::Api { status, .. } => assert_eq!(status.as_u16(), 404),
         other => panic!("expected Error::Api 404, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn list_subscriptions_returns_watched_repos() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/user/subscriptions"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(SUBSCRIPTIONS_PAGE1, "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let repos = client_for(&server)
+        .subscriptions()
+        .send()
+        .await
+        .expect("list subscriptions")
+        .into_page()
+        .expect("modified");
+    assert_eq!(repos.items.len(), 2);
+    assert_eq!(repos.items[0].full_name, "octocat/hello-world");
+    assert!(!repos.items[0].fork);
+    assert!(repos.items[1].fork);
+}
+
+#[tokio::test]
+async fn list_subscriptions_all_follows_link() {
+    let server = MockServer::start().await;
+    let next_link = format!("<{}/user/subscriptions?page=2>; rel=\"next\"", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/user/subscriptions"))
+        .and(query_param_is_missing("page"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("Link", next_link.as_str())
+                .set_body_raw(SUBSCRIPTIONS_PAGE1, "application/json"),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/user/subscriptions"))
+        .and(query_param("page", "2"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(SUBSCRIPTIONS_PAGE2, "application/json"),
+        )
+        .mount(&server)
+        .await;
+
+    let all = client_for(&server)
+        .subscriptions()
+        .all()
+        .await
+        .expect("collect all subscription pages");
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[2].full_name, "octocat/octo-secret");
+    assert!(all[2].private);
 }
 
 #[tokio::test]
