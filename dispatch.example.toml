@@ -1,11 +1,11 @@
-# octo-notify dispatch rules
+# octo-notify watch rules
 # ===========================================================================
 # Run with:
 #
 #   GITHUB_TOKEN=$(gh auth token) \
-#     octo-notify dispatch --config dispatch.example.toml --state ~/.cache/octo-notify.json
+#     octo-notify watch --rules dispatch.example.toml --state ~/.cache/octo-notify.json
 #
-# `dispatch` polls your notifications and runs a command for each one, according
+# `watch --rules` polls your notifications and runs a command for each one, according
 # to the [[rule]]s below.
 #
 # Match mode (top-level `match`):
