@@ -10,10 +10,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use futures::StreamExt;
 use octo_notify::app::{Event, JsonFileStore};
-use octo_notify::{Auth, Client, Listing, Notification};
+use octo_notify::{Auth, Client, ListNotifications, Listing, Notification};
 use tokio_util::sync::CancellationToken;
 
 /// Work with your GitHub notifications inbox.
@@ -34,9 +35,21 @@ enum Command {
         /// Only notifications you're directly participating in.
         #[arg(long)]
         participating: bool,
-        /// Results per page (max 50).
+        /// Results per page (max 50 for the inbox, 100 for a repo).
         #[arg(long, default_value_t = 50)]
         per_page: u8,
+        /// List a single repository's notifications instead of the whole inbox ("owner/name").
+        #[arg(long, value_name = "OWNER/NAME")]
+        repo: Option<String>,
+        /// Only notifications updated after this time (RFC3339, e.g. 2026-01-01T00:00:00Z).
+        #[arg(long, value_name = "RFC3339")]
+        since: Option<DateTime<Utc>>,
+        /// Only notifications updated before this time (RFC3339).
+        #[arg(long, value_name = "RFC3339")]
+        before: Option<DateTime<Utc>>,
+        /// Page number (1-based).
+        #[arg(long)]
+        page: Option<u32>,
     },
     /// Watch notifications as a live stream.
     Watch {
@@ -97,6 +110,12 @@ enum Command {
     },
     /// List the repositories you watch (your subscriptions).
     Subscriptions,
+    /// Mark notifications as read (the whole inbox, or one repository with --repo).
+    MarkRead {
+        /// Mark only this repository's notifications ("owner/name").
+        #[arg(long, value_name = "OWNER/NAME")]
+        repo: Option<String>,
+    },
     /// Operate on a single notification thread by id.
     Thread {
         #[command(subcommand)]
@@ -150,7 +169,25 @@ async fn main() -> anyhow::Result<()> {
             all,
             participating,
             per_page,
-        } => inbox(&client, all, participating, per_page).await,
+            repo,
+            since,
+            before,
+            page,
+        } => {
+            inbox(
+                &client,
+                InboxArgs {
+                    all,
+                    participating,
+                    per_page,
+                    repo,
+                    since,
+                    before,
+                    page,
+                },
+            )
+            .await
+        }
         Command::Watch {
             interval,
             participating,
@@ -181,8 +218,29 @@ async fn main() -> anyhow::Result<()> {
         Command::Unsubscribe { repo } => unsubscribe(&client, &repo).await,
         Command::Subscription { repo } => subscription_status(&client, &repo).await,
         Command::Subscriptions => subscriptions_list(&client).await,
+        Command::MarkRead { repo } => mark_read(&client, repo.as_deref()).await,
         Command::Thread { action } => thread_command(&client, action).await,
     }
+}
+
+async fn mark_read(client: &Client, repo: Option<&str>) -> anyhow::Result<()> {
+    match repo {
+        Some(r) => {
+            let (owner, name) = split_repo(r)?;
+            client
+                .repo(owner, name)
+                .notifications()
+                .mark_all_read()
+                .send()
+                .await?;
+            println!("{r}: marked read");
+        }
+        None => {
+            client.notifications().mark_all_read().send().await?;
+            println!("inbox: marked read");
+        }
+    }
+    Ok(())
 }
 
 async fn subscriptions_list(client: &Client) -> anyhow::Result<()> {
@@ -333,20 +391,48 @@ fn subscription_state(subscribed: bool, ignored: bool) -> &'static str {
     }
 }
 
-async fn inbox(
-    client: &Client,
+struct InboxArgs {
     all: bool,
     participating: bool,
     per_page: u8,
-) -> anyhow::Result<()> {
-    let listing = client
-        .notifications()
-        .list()
-        .include_read(all)
-        .participating(participating)
-        .per_page(per_page)
-        .send()
-        .await?;
+    repo: Option<String>,
+    since: Option<DateTime<Utc>>,
+    before: Option<DateTime<Utc>>,
+    page: Option<u32>,
+}
+
+/// Apply the shared inbox filters to a listing builder, whichever scope it came from.
+fn apply_inbox_filters<'a>(list: ListNotifications<'a>, args: &InboxArgs) -> ListNotifications<'a> {
+    let mut list = list
+        .include_read(args.all)
+        .participating(args.participating)
+        .per_page(args.per_page);
+    if let Some(since) = args.since {
+        list = list.since(since);
+    }
+    if let Some(before) = args.before {
+        list = list.before(before);
+    }
+    if let Some(page) = args.page {
+        list = list.page(page);
+    }
+    list
+}
+
+async fn inbox(client: &Client, args: InboxArgs) -> anyhow::Result<()> {
+    let listing = match args.repo.as_deref() {
+        Some(repo) => {
+            let (owner, name) = split_repo(repo)?;
+            apply_inbox_filters(client.repo(owner, name).notifications().list(), &args)
+                .send()
+                .await?
+        }
+        None => {
+            apply_inbox_filters(client.notifications().list(), &args)
+                .send()
+                .await?
+        }
+    };
 
     match listing {
         Listing::Modified(page) => {

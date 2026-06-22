@@ -97,6 +97,26 @@ GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.jso
 
 `watch --state <PATH>` persists dedupe state so restarts resume without re-firing.
 
+`inbox` lists the whole inbox by default and can be narrowed:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify inbox --repo octocat/hello-world
+GITHUB_TOKEN=$(gh auth token) octo-notify inbox --since 2026-01-01T00:00:00Z --page 2
+```
+
+`--repo owner/name` lists one repository's notifications; `--since` / `--before` take RFC3339
+times; `--participating`, `--all`, `--per-page`, and `--page` round out the query.
+
+Mark notifications read (the whole inbox, or one repository):
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify mark-read
+GITHUB_TOKEN=$(gh auth token) octo-notify mark-read --repo octocat/hello-world
+```
+
+A large inbox is marked read asynchronously (the API returns `202 Accepted`), so a `mark-read`
+may take a moment to be reflected by the next `inbox`.
+
 ### Dispatch
 
 `octo-notify dispatch` runs a command per notification, driven by a TOML rules file (see
