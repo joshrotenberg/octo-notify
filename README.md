@@ -9,7 +9,7 @@ A Rust library focused entirely on the **GitHub Notifications API**: complete, t
 of every endpoint, plus an application engine (poller, async event stream, and state) for
 building things on top of the notifications inbox.
 
-> Status: pre-0.1, under active development. The API may change before the first release.
+> Status: pre-1.0 and under active development; the API may change between minor releases.
 
 ## Scope
 
@@ -38,7 +38,7 @@ The two compose: octocrab for the rest of the API, octo-notify for the inbox.
 
 ```toml
 [dependencies]
-octo-notify = "0.1"
+octo-notify = "0.3"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3"
 ```
