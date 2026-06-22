@@ -1,0 +1,31 @@
+[
+  {
+    "id": 1296269,
+    "name": "hello-world",
+    "full_name": "octocat/hello-world",
+    "owner": {
+      "login": "octocat",
+      "id": 1,
+      "html_url": "https://github.com/octocat",
+      "type": "User"
+    },
+    "private": false,
+    "html_url": "https://github.com/octocat/hello-world",
+    "fork": false,
+    "description": "an extra field the minimal model ignores"
+  },
+  {
+    "id": 2,
+    "name": "spoon-knife",
+    "full_name": "octocat/spoon-knife",
+    "owner": {
+      "login": "octocat",
+      "id": 1,
+      "html_url": "https://github.com/octocat",
+      "type": "User"
+    },
+    "private": false,
+    "html_url": "https://github.com/octocat/spoon-knife",
+    "fork": true
+  }
+]

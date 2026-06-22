@@ -13,10 +13,11 @@ building things on top of the notifications inbox.
 
 ## Scope
 
-octo-notify covers the GitHub Notifications REST API and nothing else. GitHub has no webhook
-for the notifications inbox, so consuming it requires polling with conditional requests,
-`X-Poll-Interval` handling, deduplication, and retry/backoff. This crate provides those as a
-library rather than leaving them to each caller.
+octo-notify covers the GitHub Notifications REST API, plus the repository watching/subscription
+endpoints that decide what lands in the inbox. GitHub has no webhook for the notifications
+inbox, so consuming it requires polling with conditional requests, `X-Poll-Interval` handling,
+deduplication, and retry/backoff. This crate provides those as a library rather than leaving
+them to each caller.
 
 ### vs. octocrab
 
@@ -137,6 +138,15 @@ GITHUB_TOKEN=$(gh auth token) octo-notify subscription octocat/hello-world
 instead; `unsubscribe` removes the subscription; `subscription` prints `watching`, `ignored`,
 or `not subscribed`. The same operations are on the library's `RepoHandler`
 (`subscribe()`, `ignore()`, `set_subscription()`, `subscription()`, `delete_subscription()`).
+
+List every repository you watch:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify subscriptions
+```
+
+This maps to `GET /user/subscriptions`, exposed on the library as `Client::subscriptions()`
+(a paginated builder with `send()`, `all()`, and `stream()`).
 
 ### Threads
 

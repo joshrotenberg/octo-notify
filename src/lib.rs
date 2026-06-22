@@ -214,8 +214,8 @@ pub use auth::{Auth, TokenProvider};
 pub use client::RetryPolicy;
 pub use client::{Client, ClientBuilder};
 pub use endpoints::{
-    ListNotifications, MarkAllRead, NotificationsHandler, RepoHandler, RepoNotificationsHandler,
-    ThreadHandler,
+    ListNotifications, ListSubscriptions, MarkAllRead, NotificationsHandler, RepoHandler,
+    RepoNotificationsHandler, ThreadHandler,
 };
 pub use error::{Error, RateLimitKind, Result};
 pub use models::{

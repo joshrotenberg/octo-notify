@@ -95,6 +95,8 @@ enum Command {
         /// Repository as "owner/name".
         repo: String,
     },
+    /// List the repositories you watch (your subscriptions).
+    Subscriptions,
     /// Operate on a single notification thread by id.
     Thread {
         #[command(subcommand)]
@@ -178,8 +180,33 @@ async fn main() -> anyhow::Result<()> {
         Command::Subscribe { repo, ignore } => subscribe(&client, &repo, ignore).await,
         Command::Unsubscribe { repo } => unsubscribe(&client, &repo).await,
         Command::Subscription { repo } => subscription_status(&client, &repo).await,
+        Command::Subscriptions => subscriptions_list(&client).await,
         Command::Thread { action } => thread_command(&client, action).await,
     }
+}
+
+async fn subscriptions_list(client: &Client) -> anyhow::Result<()> {
+    let repos = client.subscriptions().all().await?;
+    println!(
+        "{} watched repositor{}\n",
+        repos.len(),
+        if repos.len() == 1 { "y" } else { "ies" },
+    );
+    for r in &repos {
+        let mut tags = Vec::new();
+        if r.private {
+            tags.push("private");
+        }
+        if r.fork {
+            tags.push("fork");
+        }
+        if tags.is_empty() {
+            println!("{}", r.full_name);
+        } else {
+            println!("{} ({})", r.full_name, tags.join(", "));
+        }
+    }
+    Ok(())
 }
 
 async fn thread_command(client: &Client, action: ThreadCommand) -> anyhow::Result<()> {

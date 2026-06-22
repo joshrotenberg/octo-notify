@@ -12,6 +12,7 @@ use url::Url;
 use crate::auth::Auth;
 use crate::endpoints::notifications::NotificationsHandler;
 use crate::endpoints::repo::RepoHandler;
+use crate::endpoints::subscriptions::ListSubscriptions;
 use crate::endpoints::threads::ThreadHandler;
 use crate::error::{Error, RateLimitKind, Result};
 use crate::models::{Notification, ThreadId};
@@ -86,6 +87,14 @@ impl Client {
             owner: owner.into(),
             repo: repo.into(),
         }
+    }
+
+    /// List the repositories the authenticated user watches (`GET /user/subscriptions`).
+    ///
+    /// This is the inventory of your subscriptions; manage an individual repository's
+    /// subscription with [`repo`](Self::repo) and [`RepoHandler`](crate::RepoHandler).
+    pub fn subscriptions(&self) -> ListSubscriptions<'_> {
+        ListSubscriptions::new(self)
     }
 
     /// Operations on a single notification thread.
