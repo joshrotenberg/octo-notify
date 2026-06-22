@@ -122,6 +122,22 @@ Matchers (`reason`/`subject_type`/`repo`) are ANDed; omitted ones match anything
 `{repo} {thread_id} {title} {url} {reason} {type}` substituted (also exported as `OCTO_*` env
 vars). The command can be anything - a script, `notify-send`, `curl`, or a task runner.
 
+### Subscriptions
+
+Watch or ignore a repository (the GitHub "watching" relationship), or check its status:
+
+```sh
+GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world
+GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world --ignore
+GITHUB_TOKEN=$(gh auth token) octo-notify unsubscribe octocat/hello-world
+GITHUB_TOKEN=$(gh auth token) octo-notify subscription octocat/hello-world
+```
+
+`subscribe` watches all of a repository's activity; `--ignore` suppresses its notifications
+instead; `unsubscribe` removes the subscription; `subscription` prints `watching`, `ignored`,
+or `not subscribed`. The same operations are on the library's `RepoHandler`
+(`subscribe()`, `ignore()`, `set_subscription()`, `subscription()`, `delete_subscription()`).
+
 ## Design
 
 Three layers, each usable without the one above it:

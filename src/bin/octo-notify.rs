@@ -4,6 +4,7 @@
 //! cargo install octo-notify --features cli
 //! GITHUB_TOKEN=$(gh auth token) octo-notify inbox --all
 //! GITHUB_TOKEN=$(gh auth token) octo-notify watch --state ~/.cache/octo-notify.json
+//! GITHUB_TOKEN=$(gh auth token) octo-notify subscribe octocat/hello-world
 //! ```
 
 use std::path::PathBuf;
@@ -76,6 +77,24 @@ enum Command {
         #[arg(long, value_name = "PATH")]
         state: Option<PathBuf>,
     },
+    /// Watch a repository (subscribe to notifications for all its activity).
+    Subscribe {
+        /// Repository as "owner/name".
+        repo: String,
+        /// Ignore the repository (suppress all notifications) instead of watching it.
+        #[arg(long)]
+        ignore: bool,
+    },
+    /// Stop watching or ignoring a repository (delete its subscription).
+    Unsubscribe {
+        /// Repository as "owner/name".
+        repo: String,
+    },
+    /// Show your subscription status for a repository.
+    Subscription {
+        /// Repository as "owner/name".
+        repo: String,
+    },
 }
 
 #[tokio::main]
@@ -114,6 +133,70 @@ async fn main() -> anyhow::Result<()> {
             )
             .await
         }
+        Command::Subscribe { repo, ignore } => subscribe(&client, &repo, ignore).await,
+        Command::Unsubscribe { repo } => unsubscribe(&client, &repo).await,
+        Command::Subscription { repo } => subscription_status(&client, &repo).await,
+    }
+}
+
+/// Split an `owner/name` repository argument, rejecting anything malformed.
+fn split_repo(repo: &str) -> anyhow::Result<(&str, &str)> {
+    match repo.split_once('/') {
+        Some((owner, name)) if !owner.is_empty() && !name.is_empty() && !name.contains('/') => {
+            Ok((owner, name))
+        }
+        _ => anyhow::bail!("expected repository as \"owner/name\", got {repo:?}"),
+    }
+}
+
+async fn subscribe(client: &Client, repo: &str, ignore: bool) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    let handler = client.repo(owner, name);
+    let sub = if ignore {
+        handler.ignore().await?
+    } else {
+        handler.subscribe().await?
+    };
+    println!(
+        "{repo}: {}",
+        subscription_state(sub.subscribed, sub.ignored)
+    );
+    Ok(())
+}
+
+async fn unsubscribe(client: &Client, repo: &str) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    client.repo(owner, name).delete_subscription().await?;
+    println!("{repo}: unsubscribed");
+    Ok(())
+}
+
+async fn subscription_status(client: &Client, repo: &str) -> anyhow::Result<()> {
+    let (owner, name) = split_repo(repo)?;
+    match client.repo(owner, name).subscription().await {
+        Ok(sub) => {
+            println!(
+                "{repo}: {}",
+                subscription_state(sub.subscribed, sub.ignored)
+            );
+            Ok(())
+        }
+        // 404 is the API's way of saying "no subscription exists" for this repo.
+        Err(octo_notify::Error::Api { status, .. }) if status.as_u16() == 404 => {
+            println!("{repo}: not subscribed");
+            Ok(())
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn subscription_state(subscribed: bool, ignored: bool) -> &'static str {
+    if ignored {
+        "ignored"
+    } else if subscribed {
+        "watching"
+    } else {
+        "not subscribed"
     }
 }
 
@@ -418,5 +501,21 @@ mod tests {
             render("{reason} {repo} {type} #{thread_id}", &n),
             "mention octocat/hello Issue #1"
         );
+    }
+
+    #[test]
+    fn split_repo_accepts_owner_name_and_rejects_the_rest() {
+        assert_eq!(split_repo("octocat/hello").unwrap(), ("octocat", "hello"));
+        for bad in ["octocat", "octocat/", "/hello", "a/b/c", ""] {
+            assert!(split_repo(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn subscription_state_labels() {
+        assert_eq!(subscription_state(true, false), "watching");
+        assert_eq!(subscription_state(false, true), "ignored");
+        assert_eq!(subscription_state(true, true), "ignored");
+        assert_eq!(subscription_state(false, false), "not subscribed");
     }
 }
