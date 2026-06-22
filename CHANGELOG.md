@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-06-22
+
+### Added
+
+- *(cli)* Colorize the watch live feed ([#64](https://github.com/joshrotenberg/octo-notify/pull/64))
+
+
+
 ## [0.3.0] - 2026-06-22
 
 ### Added
